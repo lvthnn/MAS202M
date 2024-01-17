@@ -1,0 +1,114 @@
+---
+title: "Week 1 — Exercise 2.8"
+author: "Kári Hlynsson"
+output: 
+  bookdown::html_document2:
+    toc: true
+    toc_float:
+      toc_collapsed: false    
+      smooth_scroll: false
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.align = "center")
+```
+
+# Packages
+
+```{r message = FALSE}
+library(ISLR2)
+library(tidyverse)
+library(magrittr)
+library(GGally)
+library(gridExtra)
+
+theme_set(theme_classic())
+```
+
+
+# Description of data set
+
+Contained in this document is my solution of Exercise 2.8 from *An Introduction to Statistical Learning*. In this exercise, the data set `College` is used, which contains a number of variables for 777 different universities and colleges in the US. The variables in the data as well as a short description is shown below in Table \@ref(tab:data-info).
+
+```{r data-info, echo = FALSE}
+tab_data_info <- read_delim("ex2.8-data-info", show_col_types = FALSE)
+knitr::kable(tab_data_info, caption = "Description of the `College` data set.")
+```
+
+# Exploring the data
+
+Start by importing the data set using the `data` command. This is possible since the `ISLR2` package has been installed. The row names in the data set are already configured to be the names of the universities and colleges, so there is no need to make changes to that part.
+
+```{r}
+# Load the data set
+data(College)
+
+# Look at data types
+glimpse(College)
+```
+
+The data set consists of 777 observations with 18 features per observation. All the variables are numeric except for `Private`, which is a factor (binary) variable. There is no change necessary here. Let us summarise the variables:
+
+```{r}
+summary(College)
+```
+
+```{r message = FALSE}
+ggpairs(College[,1:10])
+```
+
+Side by side boxplots of `Outstate` versus `Private`:
+
+```{r}
+ggplot(College, aes(x = Private, y = Outstate, fill = Private)) +
+  geom_boxplot() +
+  theme(legend.position = "none") +
+  labs(
+    title = "Out-of-state Tuition Fees",
+    subtitle = "Tuition fees seem to be higher for out-of-state students.",
+    y = "Out-of-state tuition (USD)",
+    x = "Private school"
+  )
+```
+
+Create the `Elite` variable:
+
+```{r}
+College %<>% mutate(Elite = factor(ifelse(College$Top10perc > 50, "Yes", "No")))
+```
+
+Let's look at how many of the universities fall under the elite category:
+
+```{r}
+College %>% count(Elite)
+```
+
+78 of the 777 colleges and universities, or about 10% fall under the elite category. This is quite satisfying. We might also be interested in seeing which of the universities have the highest percentage of elite students from their respective high schools:
+
+```{r}
+College %>% 
+  filter(Elite == "Yes") %>%
+  arrange(desc(Top10perc)) %>%
+  select(Private, Apps, Accept, Enroll, Top10perc) %>%
+  head(10) %>%
+  knitr::kable(caption = "Top 10 universities in terms of elite student percentage.")
+```
+
+These names are certainly not unfamiliar, at least not to an undergraduate student.
+Let us next create some histograms of a selection of the quantitative variables.
+
+```{r message = FALSE, fig.cap = "Histograms of quantitative variables in the data set."}
+hist_fn <- function(data) {
+  grob <- ggplot(College, aes(x = get(data))) + 
+    geom_histogram(fill = "skyblue") +
+    labs(x = paste(data), y = "Frequency")  
+  return(grob)
+}
+
+grobs <- College %>% select_if(is.numeric) %>% colnames() %>% lapply(hist_fn)
+
+grid.arrange(grobs = grobs, nrow = 4)
+```
+
+Continue exploring the data...

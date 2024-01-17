@@ -1,0 +1,76 @@
+---
+title: "Week 1 — Exercise 2.9"
+author: "Kári Hlynsson"
+output: 
+  bookdown::html_document2:
+    toc: true
+    toc_float:
+      toc_collapsed: false    
+      smooth_scroll: false
+    toc_depth: 3
+---
+
+# Data set
+
+```{r message = FALSE}
+library(ISLR2)
+library(tidyverse)
+library(magrittr)
+library(GGally)
+data(Auto)
+```
+
+Note that since I am using the `ISLR2` package to import the data set, it is already in good condition. Start with some elementary summaries, including the data types:
+
+```{r}
+glimpse(Auto)
+```
+
+The qualitative variables are `origin` and `name`. I would rather treat `cylinders` as a quantitative variable since in technicality this variable can take any positive integer value (although in practice this can be very difficult to achieve). However, the qualitative argument also has some truth to it. Let us adjust some of the variable data types to better reflect our understanding of them:
+
+```{r}
+Auto %<>% mutate(origin = as.factor(origin))
+```
+
+and now for some summaries of the variables:
+
+```{r}
+summary(Auto)
+```
+
+Calculate the variable ranges:
+
+```{r}
+agg_fn <- function(c) {
+  c(mean = mean(c), sd = sd(c), min = min(c), max = max(c))
+}
+
+var_ranges <- Auto %>%
+  select_if(is.numeric) %>%
+  reframe(across(everything(), agg_fn))
+
+rownames(var_ranges) <- c("mean", "sd", "min", "max")
+
+knitr::kable(var_ranges, caption = "Descriptive statistics of quantitative variables in the `Auto` data set.", digits = 2)
+```
+
+
+```{r}
+
+Auto_Subset <- Auto[-c(10:85),]
+
+agg_filtered <- Auto_Subset %>% select_if(is.numeric) %>%
+  reframe(across(everything(), agg_fn))
+
+rownames(agg_filtered) <- c("mean", "sd", "min", "max")
+
+knitr::kable(agg_filtered, caption = "Descriptive statistics for the filtered `Auto` data set.", digits = 2)
+```
+
+Pair plots to investigate relationship:
+
+```{r message = FALSE, fig.cap = "Pair plot of variables in the data set."}
+ggpairs(Auto %>% select(-c("name")), progress = FALSE)
+```
+
+The pair plot shows a plethora of strong correlations, e.g. `cylinders` and `displacement`, `horsepower` and `weight`, `weight` and `displacement`, etc. Looking at `mpg`, it would seem that `displacement`, `horsepower` and `weight` share a quadratic or polynomial relationship with `mpg`, which we could indeed in clude in our model. The variables `year` and `origin` seem to have a linear relationship with this variable, and decently strong ones juding by the correlation coefficients. We might have to take care in variable selection as some of the variables are seemingly quite collinear.
