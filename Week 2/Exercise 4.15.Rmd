@@ -1,0 +1,74 @@
+---
+title: "Exercise 4.15"
+author: "Kári Hlynsson"
+date: "2024-01-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Part (a)
+
+Write a function, `Power()`, that prints out the result of raising 2 to the 3rd power. In other words, your function should compute 23 and print out the results. Hint: Recall that `x^a` raises `x` to the power `a`. Use the `print()` function to output the result.
+
+```{r}
+Power  <- function() 2^3
+```
+
+## Part (b)
+
+Create a new function, `Power2()`, that allows you to pass any two numbers, `x` and `a`, and prints out the value of `x^a`. You can do this by beginning your function with the line [...]
+
+```{r}
+Power2 <- function(x, a) x^a
+```
+
+## Part (c)
+
+Using the `Power2()` function that you just wrote, compute 103, 817, and 1313.
+
+```{r}
+Power2(3, 8)
+```
+
+## Part (d)
+
+Now create a new function, `Power3()`, that actually returns the result `x^a` as an R object, rather than simply printing it to the screen. That is, if you store the value `x^a` in an object called result within your function, then you can simply `return()` this result, using the following line:
+
+```{r}
+Power3 <- function(x, a) {
+  res <- x^a
+  return(res)
+}
+```
+
+## Part (e)
+
+```{r}
+x <- 1:10
+y <- Power3(x, 2)
+
+ggplot(data.frame(x, y), aes(x, y)) +
+  geom_line() +
+  labs(
+      title = "Plot of f(x) = x²"
+  )
+```
+
+## Part (f)
+
+```{r}
+PlotPower <- function(xs, a) {
+  ys <- Power3(xs, a)
+  ggplot(
+    data.frame(xs, ys),
+    aes(xs, ys)
+  ) + geom_line()
+}
+
+PlotPower(1:10, 3)
+```
+
+## 

@@ -1,0 +1,40 @@
+---
+title: "Week 3 — Exercise 5.6"
+author: "Kári Hlynsson"
+output: 
+  bookdown::html_document2:
+    toc: true
+    toc_float:
+      toc_collapsed: false    
+      smooth_scroll: false
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.align = "center")
+```
+
+## Packages
+
+```{r}
+library(ISLR2)
+library(caret)
+library(tidyverse)
+
+data(Default)
+
+set.seed(1) # :D
+```
+
+We continue to consider the use of a logistic regression model to predict the probability of `default` using `income` and `balance` on the `Default` data set. In particular, we will now compute estimates for the standard errors of the `income` and `balance` logistic regression coefficients in two different ways: (1) using the bootstrap, and (2) using the standard formula for computing the standard errors in the `glm()` function. Do not forget to set a random seed before beginning your analysis.
+
+## Part (a)
+Using the `summary()` and `glm()` functions, determine the estimated standard errors for the coefficients associated with income and balance in a multiple logistic regression model that uses both predictors.
+
+```{r}
+init.fit <- glm(default ~ balance + income, data = Default, family = "binomial")
+summary(init.fit)
+```
+
+The standard deviation for `balance` is $5.647 \cdot 10^{-3}$ is standard error for `income` is
+

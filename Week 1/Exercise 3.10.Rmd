@@ -1,0 +1,132 @@
+---
+title: "Exercise 3.10"
+author: "Kári Hlynsson"
+date: "2024-02-10"
+output: 
+  bookdown::html_document2:
+    toc: true
+    toc_float:
+      toc_collapsed: false    
+      smooth_scroll: false
+    number_sections: false
+    toc_depth: 3
+---
+
+```{r echo = FALSE}
+library(equatiomatic)
+panel.hist <- function(x, ...)
+{
+    usr <- par("usr")
+    par(usr = c(usr[1:2], 0, 1.5) )
+    h <- hist(x, plot = FALSE)
+    breaks <- h$breaks; nB <- length(breaks)
+    y <- h$counts; y <- y/max(y)
+    rect(breaks[-nB], 0, breaks[-1], y, ...)
+}
+
+panel.cor <- function(x, y, digits = 2, prefix = "", cex.cor, ...)
+{
+    par(usr = c(0, 1, 0, 1))
+    r <- cor(x, y)
+    txt <- format(c(r, 0.123456789), digits = digits)[1]
+    txt <- paste0(prefix, txt)
+    text(0.5, 0.5, txt, cex = 1.5)
+}
+
+pair_plot <- function(x) { pairs(x, diag.panel = panel.hist, upper.panel = panel.cor) }
+```
+
+
+```{r}
+library(ISLR2)
+library(MASS)
+
+data(Carseats)
+attach(Carseats)
+
+pair_plot(Carseats)
+```
+
+# Part (a)
+Fit a multiple regression model to predict `Sales` using `Price`, `Urban` and `US`.
+
+```{r}
+lin_sales <- lm(Sales ~ Price + Urban + US)
+summary(lin_sales)
+```
+
+# Part (b)
+Provide an interpretation of each coefficient in the model. Be careful -- some of the variables in the model are qualitative.
+
+For quantitative predictors, coefficients can be interpreted as being the slopes in the level set of the predictor $X_j$. For qualitative
+predictors this changes to an additive effect if the predictor is in the "positive" state.
+
+# Part (c)
+Write out the model in equation form, being careful to handle the qualitative variables properly.
+
+```{r}
+extract_eq(lin_sales, use_coefs = TRUE, coef_digits = 4)
+```
+
+$$
+\operatorname{\widehat{Sales}} = 13.0435 - 0.0545(\operatorname{Price}) - 0.0219(\operatorname{Urban}_{\operatorname{Yes}}) + 1.2006(\operatorname{US}_{\operatorname{Yes}})
+$$
+
+# Part (d)
+For which of the predictors can you reject the null hypothesis $H_0: \beta_j = 0$?
+
+For all the predictors except `Urban`.
+
+
+# Part (e)
+On the basis of your response to the previous question, fit a smaller model that only uses the predictors for which there is evidence
+of association with the outcome.
+
+```{r}
+lin_sales_small <- update(lin_sales, . ~ . - Urban)
+summary(lin_sales_small)
+```
+
+# Part (f)
+How well do the models in (a) and (e) fit the data?
+
+Larger model:
+
+```{r}
+par(mfrow = c(2, 2))
+plot(lin_sales)
+```
+
+Seems to be good residual structure in this model.
+
+Smaller model:
+
+```{r}
+par(mfrow = c(2, 2))
+plot(lin_sales_small)
+```
+
+Similar case here. A couple of observations with high leverage, seemingly only one falls outside of 95% confidence interval
+for the studentised residuals and counts as an outlier. These models don't seem to explain very much variation in the data,
+$R^2 = 0.2393$ for both models.
+
+We can also compare the models using an $F$ test:
+
+```{r}
+anova(lin_sales, lin_sales_small)
+```
+
+We fail to reject the null hypothesis that there is a difference between the variation in the data explained by the models,
+so naturally we prefer the smaller model `lin_sales_small`.
+
+# Part (g)
+Using the model from (e), obtain 95% confidence intervals for the coefficient(s).
+
+```{r}
+confint(lin_sales_small)
+```
+
+# Part (h)
+Is there evidence of outliers or high leverage observations in the model from (e)?
+
+Yes, see my earlier ramblings. 

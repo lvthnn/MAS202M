@@ -1,0 +1,142 @@
+---
+title: "Week 3 — Exercise 5.5"
+author: "Kári Hlynsson"
+output: 
+  bookdown::html_document2:
+    toc: true
+    toc_float:
+      toc_collapsed: false    
+      smooth_scroll: false
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.align = "center")
+```
+
+In Chapter 4, we used logistic regression to predict the probability of `default` using `income` and `balance` on the `Default` data set. We will now estimate the test error of this logistic regression model using the validation set approach. Do not forget to set a random seed before beginning your analysis.
+
+```{r message = FALSE}
+library(ISLR2)
+library(caret)
+library(tidyverse)
+
+data(Default)
+```
+
+## Part (a)
+Fit a logistic regression model that uses income and balance to predict default.
+
+```{r}
+glm.fit <- glm(default ~ income + balance, data = Default, family = "binomial")
+```
+
+## Part (b)
+Using the validation set approach, estimate the test error of this model. In order to do this, you must perform the following steps:
+
+### Solution
+Perform the training-test split. I will commit 75% of the data set to the training set and use the rest for measuring prediction error.
+
+```{r}
+set.seed(42)
+
+n   <- nrow(Default)
+sel <- sample(1:n, round(0.75 * n))
+
+train <- Default[sel,]
+test  <- Default[setdiff(1:n, sel),]
+```
+
+Fit the model on the training set:
+
+```{r}
+glm.fit <- glm(default ~ income + balance, data = train, family = "binomial")
+```
+
+Now create predictions on the test set and measure prediction error on the test data set:
+
+```{r}
+test.probs <- predict(glm.fit, test, type = "response")
+test.pred  <- factor(ifelse(test.probs > 0.5, "Yes", "No"))
+
+confusionMatrix(test.pred, test$default, positive = "Yes")
+```
+
+The validation set error (test error) is $1 - 0.9748 = 0.0252$ or approximately $2.52\%$.
+
+## Part (c)
+Repeat the process in (b) three times, using three different splits of the observations 
+into a training set and a validation set. Comment on the results obtained.
+
+### Solution
+
+I would like to vary the proportion $\eta \in (0,1)$ with which the data set is split into training and test data sets for multiple values.
+
+```{r}
+etas <- seq(0.01, 0.99, by = 0.01)
+
+tse1 <- sapply(etas, function(eta) {
+  accuracy <- c()
+  
+  for (i in 1:10) {
+    sel <- sample(1:n, round(eta * n))
+    
+    train <- Default[sel,]
+    test  <- Default[setdiff(1:n, sel),]
+    
+    mdl.fit    <- glm(default ~ balance + income, data = train, family = "binomial")
+    test.probs <- predict(mdl.fit, test, type = "response")
+    test.pred  <- factor(ifelse(test.probs > 0.5, "Yes", "No"), levels = c("No", "Yes"))
+    
+    accuracy <- append(accuracy, mean(test.pred == test$default))
+  }
+    
+  return(mean(accuracy))
+})
+```
+
+Visualise:
+
+```{r}
+plot(etas, 1 - tse, xlab = expression(eta), ylab = "Test set error")
+abline(h = mean(1 - tse), lty = 2)
+```
+
+It seems like increasing the value of $\eta$ increases variance in the test set error, likely due to increased bias as more data are added to the training set.
+
+## Part (d)
+Now consider a logistic regression model that predicts the probability of default using `income`, `balance`, and a dummy variable for `student`. Estimate the test error for this model using the validation set approach. Comment on whether or not including a dummy variable for `student` leads to a reduction in the test error rate.
+
+```{r}
+tse2 <- sapply(etas, function(eta) {
+  accuracy <- c()
+  
+  for (i in 1:10) {
+    sel <- sample(1:n, round(eta * n))
+    
+    train <- Default[sel,]
+    test  <- Default[setdiff(1:n, sel),]
+    
+    mdl.fit    <- glm(default ~ balance + income + student, data = train, family = "binomial")
+    test.probs <- predict(mdl.fit, test, type = "response")
+    test.pred  <- factor(ifelse(test.probs > 0.5, "Yes", "No"), levels = c("No", "Yes"))
+    
+    accuracy <- append(accuracy, mean(test.pred == test$default))
+  }
+    
+  return(mean(accuracy))
+})
+```
+
+Compare the two
+
+```{r}
+plot(etas, 1 - tse1, type = "l", lwd = 1.15, col = "red",
+     xlab = expression(eta), ylab = "Test set error", ylim = c(0, max(1 - tse1, 1 - tse2)))
+lines(etas, 1 - tse2, lty = 1, lwd = 1.15, col = "blue")
+
+legend("bottomleft", inset = c(0.05, 0.05), legend = c("No dummy var.", "With dummy var."),
+       lwd = 1.5, lty = 1, col = c("red", "blue"))
+```
+
+Similar performance at the cost of an added variable. Adding the dummy variable comes at a cost of increased bias while not reducing variance -- therefore we should not include it.

@@ -1,0 +1,49 @@
+---
+title: "Exercise 4.16"
+author: "Kári Hlynsson"
+date: "2024-01-21"
+output: html_document
+---
+
+```{r setup, include=FALSE, message = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(MASS)
+library(e1071)
+library(pROC)
+library(class)
+library(caret)
+library(tidyverse)
+library(GGally)
+```
+
+Using the Boston data set, fit classification models in order to predict whether a given census tract has a crime rate above or below the median. Explore logistic regression, LDA, naive Bayes, and KNN models using various subsets of the predictors. Describe your findings.
+
+*Hint: You will have to create the response variable yourself, using the variables that are contained in the Boston data set.*
+
+**Solution.** Start by importing the data set.
+
+```{r}
+library(ISLR2)
+data(Boston)
+```
+
+Summary look at the data set.
+
+```{r}
+glimpse(Boston)
+```
+
+Pair plot:
+
+```{r}
+ggpairs(Boston, progress = FALSE)
+```
+
+Create the response classifier:
+
+```{r}
+Boston <- Boston |> mutate(
+  crim01 = ifelse(crim > median(crim), 1, 0)
+)
+```
+

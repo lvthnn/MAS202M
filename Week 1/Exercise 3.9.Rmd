@@ -1,32 +1,20 @@
 ---
-documentclass: article
-geometry: margin=1in
-fontsize: 11pt
-classoption: a4paper
-title: "MAS202M Applied Data Analysis — Exercise 3.9"
-date: "\\today"
+title: "Week 1 — Exercise 2.9"
 author: "Kári Hlynsson"
 output: 
-  bookdown::pdf_document2:
-    keep_tex: yes
-    fig_caption: true
+  bookdown::html_document2:
+    toc: true
+    toc_float:
+      toc_collapsed: false    
+      smooth_scroll: false
     number_sections: false
-    highlight: tango
-    includes:
-      in_header: ~/.local/share/rmd/preamble.tex
-toc: false
-lot: false
-lof: false
+    toc_depth: 3
 ---
 
 
-In this exercise I will be looking into the `Auto` data set, the same one as in Exercise 2.8.
-Start with the packages:
 
 ```{r message = FALSE, include = FALSE}
 library(MASS)
-library(tidyverse)
-library(GGally)
 library(ISLR2)
 library(equatiomatic)
 
@@ -54,68 +42,101 @@ panel.cor <- function(x, y, digits = 2, prefix = "", cex.cor, ...)
 pair_plot <- function(x) { pairs(x, diag.panel = panel.hist, upper.panel = panel.cor) }
 ```
 
-Let's start with some routine exploration of the data. First of all, the data types:
-
-```{r}
-glimpse(Auto)
-```
-
-The data is 392 observations of 9 variables. Let's create a scatterplot matrix of the variables in the data set:
-
 # Part (a)
 Produce a scatterplot matrix which includes all of the variables in the data set.
 
 ```{r}
-pair_plot(Auto |> select(-name))
+pair_plot(Auto[,-c(8, 9)])
 ```
 
 # Part (b)
-Correlation matrix:
+Compute the matrix of correlations between the variables using the function `cor()`. You will need to exclude the `name` variable
+which is qualitative.
 
 ```{r}
-cor(Auto |> select(-name))
+cor(Auto[,-9])
 ```
-
-As I commented on previously, there are some quite strong correlations between some of the variables. For instance, `displacement` and
-`horsepower` have a correlation coefficient of 0.9329944.
 
 # Part (c)
-> Use the `lm()` function to perform a multiple linear regression with mpg as the response and all other variables except name as the predictors. Use the `summary()` function to print the results. Comment on the output. For instance:
-
-Start by fitting the model:
+Use the `lm()` function to perform a multiple linear regression with `mpg` as the response and all other variables except `name`
+as the predictors. Use the `summary()` function to print the results. Comment on the output. For instance.
+- Is there a relationship between the predictors and the reponse?
+- Which predictors appear to have a statistically significant relationship to the reponse?
+- What does the coefficient for the `year` variable suggest?
 
 ```{r}
-model_all <- lm(mpg ~ . - name, data = Auto)
-
-summary(model_all)
+lin_all <- lm(mpg ~ . - name, data = Auto)
+summary(lin_all)
 ```
 
-The linear model fitted to the data is specified by
+The output suggests that there is indeed a relationship between a subset of predictors, since the $F$-test has p-value less than 0.05.
+This tells us that for the covariate effects, $\beta_1 = \cdots = \beta_p = 0$ does not hold i.e. not all effects are truly zero.
 
-```{r echo = FALSE}
-extract_eq(model_all, use_coefs = TRUE, coef_digits = 4, wrap = TRUE)
-```
+Significant effects are `displacement`, `weight`, `year` and `origin`. However we might want to investigate interaction and see whether
+collinearity may lead to unexpected results.
 
-Significant non-intercept coefficents include `displacement`, `weight`, `year` and `origin`.
-The fact that the rest are not significant may be due to due to collinearity between variables (e.g. `weight` and `displacement`) as seen earlier in the correlation matrix from part (b). Thus we can not conclude that the coefficients for these variables are zero, but we will certainly investigate to see whether accounting for variable interactions changes our findings.
-
-
-#### i. Is there a relationship between the predictors and the response?
-Yes.
-
-#### ii. Which predictors appear to have a statistically significant relationship to the response?
-See above.
-
-#### iii. What does the coefficient for the year variable suggest?
-The coefficient for year is $0.750773$, which suggests a positive relationship between `year` and `mpg`, i.e. more recent vehicles correlate with higher fuel consumption per mile driven. A unit increase in `year` where other predictors is kept constant causes an increase of $0.750773$ in `mpg`.
+The coefficient for `year` is 0.750773, which means that if we took two identical observations where only the `year` variable differs by some
+amount $x$, then we would expect the `mpg` between observations to differ by $0.750773 \cdot x$.
 
 # Part (d)
-Create the diagnostic plots:
+Use the `plot()` function to produce diagnostic plots of the linear regression fit. Comment on any problems you see with the fit.
+Do the residual plots suggest any unusually large outliers? Does the leverage plot identify any observations with unusually high leverage?
 
 ```{r}
 par(mfrow = c(2, 2))
-plot(model_all)
+plot(lin_all)
+```
+ 
+The above plot indicates non-linear residual structure which may indicate that the model assumptions are not correct (i.e. linear relationship).
+There is one observations which has very high leverage but does not have high error in the fit (not an outlier). Overall, there do not seem to be
+very many outliers. We could test this further with a Jackknife test.
+
+# Part (e)
+Use the `*` and `:` symbols to fit linear regression models with interaction effects. Do any interactions appear to be statistically significant?
+
+```{r}
+lin_adj <- lm(mpg ~ weight*displacement + horsepower*displacement)
+summary(lin_adj)
 ```
 
-The residual structure (top left) seemingly suffers from non-constant variance (heteroscedasticity). This might indicate that our model assumptions are not sufficient.
-The Residuals vs Leverage plot (bottom right) also shows a rather large observation with quite high leverage. Additionally, bla bla
+All effects are significant, and the interaction effect between `displacement` and `horsepower` is significant whereas `displacement` and `horsepower` is not.
+
+```{r}
+par(mfrow = c(2, 2))
+plot(lin_adj)
+```
+
+This residual structure looks a bit more normal given this model although heteroscedacity is still seemingly present. We could also compare the effectiveness of the models:
+
+```{r}
+anova(lin_all, lin_adj)
+```
+
+The new model is clearly better.
+
+# Part (f)
+Try a few different transformations of the variables, such as $\log(X)$, $\sqrt{X}$ and $X^2$. Comment on your findings.
+
+Let's try the Box-Cox transformation.
+
+```{r}
+bc <- boxcox(lin_adj)
+lambda <- bc$x[which.max(bc$y)]
+```
+
+Box-Cox transformation suggests $\lambda = -0.3030303$. Let's transform the response, and remove the interaction effect
+between `weight` and `displacement`.
+
+```{r}
+lin_adj <- update(lin_adj, mpg^lambda ~ . - weight:displacement)
+summary(lin_adj)
+```
+
+The model is performing better, although it is more difficult to interpret the response :-(
+
+```{r}
+par(mfrow = c(2, 2))
+plot(lin_adj)
+```
+
+Residual structure looks good.

@@ -1,0 +1,159 @@
+---
+title: "Exercise 4.14"
+author: "Kári Hlynsson"
+date: "2024-01-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(MASS)
+library(e1071)
+library(class)
+library(tidyverse)
+library(caret)
+library(ISLR2)
+```
+
+
+In this problem, you will develop a model to predict whether a given car gets high or low gas mileage based on the `Auto` data set.
+
+## Part (a)
+Create a binary variable, `mpg01`, that contains a 1 if `mpg` contains a value above its median, and a 0 if `mpg` contains a value below its median. You can compute the median using the `median()` function. Note you may find it helpful to use the `data.frame()` function to create a single data set containing both `mpg01` and the other `Auto` variables.
+
+```{r}
+data(Auto)
+
+Auto <- Auto |> mutate(mpg01 = factor(ifelse(mpg > median(mpg), 1, 0)))
+```
+
+## Part (b)
+Explore the data graphically in order to investigate the association between `mpg01` and the other features. Which of the other features seem most likely to be useful in predicting `mpg01`? Scatterplots and boxplots may be useful tools to answer this question. Describe your findings.
+
+```{r}
+GGally::ggpairs(Auto |> select(-c(name, mpg)), progress = FALSE) 
+
+pairs(Auto |> select(-name, mpg), col = Auto$mpg01)
+```
+
+I chose not to include `mpg` in the pair plot as it is directly related to `mpg01`. Judging from the plot, `acceleration`, `weight`, `horsepower` and `displacement`
+all seem to be correlated with `mpg01`. We may need to treat interaction effects between these variables though.
+
+## Part (c)
+Split the data into a training set and a test set.
+
+```{r}
+set.seed(1)
+
+mask <- sample(1:nrow(Auto), 0.75 * nrow(Auto))
+
+train <- Auto[mask,]
+test  <- Auto[setdiff(1:nrow(Auto), mask),]
+```
+
+
+## Part (d)
+> Perform LDA on the training data in order to predict `mpg01` using the variables that seemed most associated with `mpg01` in (b). What is the test error of the model obtained?
+
+```{r}
+lda.fit <- lda(mpg01 ~ displacement + horsepower + weight + acceleration, data = train)
+
+lda.pred <- predict(lda.fit, test)
+confusionMatrix(lda.pred$class, test$mpg01)
+```
+
+The test set error is $13 / 98 \approx 0.1327$, the complement of the accuracy as shown in the output of `confusionMatrix` above. The LDA classifier has
+very good specificity, and quite good sensitivity. Let's try adding interaction effects between some of the variables.
+
+```{r}
+lda.fit.2  <- lda(mpg01 ~ acceleration + displacement + horsepower:weight, data = train)
+lda.pred.2 <- predict(lda.fit.2, test)
+
+confusionMatrix(lda.pred.2$class, test$mpg01)
+```
+
+Adding an interaction effect between `weight` and `horsepower` increases the classifier accuracy.
+
+## Part (e)
+> Perform QDA on the training data in order to predict `mpg01` using the variables that seemed most associated with `mpg01` in (b). What is the test error of the model obtained?
+
+```{r}
+qda.fit <- qda(mpg01 ~ acceleration + displacement + horsepower:weight, data = train)
+qda.pred <- predict(qda.fit, test)
+
+confusionMatrix(qda.pred$class, test$mpg01)
+```
+
+The model performs better than its LDA counterpart. Test set error is $\approx 0.0816$.
+
+## Part (f)
+Perform logistic regression on the training data in order to predict `mpg01` using the variables that seemed most associated with `mpg01` in (b). What is the test error of the model obtained?
+
+```{r}
+glm.fit   <- glm(mpg01 ~ acceleration + displacement + horsepower:weight, family = "binomial", data = train)
+
+glm.probs <- predict(glm.fit, test, type = "response")
+glm.pred  <- rep(0, nrow(test))
+glm.pred[glm.probs > 0.5] <- 1
+
+glm.pred <- as.factor(glm.pred)
+
+confusionMatrix(glm.pred, test$mpg01)
+```
+
+Logistic regression is not as good as the previous two methods we used.
+
+## Part (g)
+> Perform naive Bayes on the training data in order to predict `mpg01` using the variables that seemed most associated with `mpg01` in (b). What is the test error of the model obtained?
+
+Naive Bayes is unable to accomodate interaction terms, so we will use the covariates without any such adjustments.
+
+```{r}
+nb.fit <- naiveBayes(mpg01 ~ acceleration + displacement + horsepower + weight, data = train)
+nb.pred <- predict(nb.fit, test)
+
+confusionMatrix(nb.pred, test$mpg01)
+```
+
+Does not perform as well.
+
+## Part (h)
+> Perform KNN on the training data, with several values of K, in order to predict `mpg01`. Use only the variables that seemed most associated with `mpg01` in (b). What test errors do you obtain? Which value of K seems to perform the best on this data set?
+
+```{r}
+train.X <- train |> select(acceleration, displacement, horsepower, weight)
+test.X  <- test |> select(acceleration, displacement, horsepower, weight)
+
+train.Y <- train |> pull(mpg01)
+
+knn.pred  <- knn(train.X, test.X, train.Y, k = 3)
+```
+
+Construct the confusion matrix:
+
+```{r}
+confusionMatrix(knn.pred, test$mpg01)
+```
+
+Now let's tune the hyperparameters:
+
+```{r}
+k.accuracy <- sapply(1:30, function(k) {
+  l <- c()
+  for (i in 1:1000) {
+    knn.pred <- knn(train.X, test.X, train.Y, k)
+    accuracy <- confusionMatrix(knn.pred, test$mpg01)$overall[["Accuracy"]]
+    l <- append(l, accuracy)
+  }
+  mean(l)
+})
+```
+
+Find the optimal value of \(K\):
+
+```{r}
+which.max(k.accuracy)
+```
+
+It's 4.

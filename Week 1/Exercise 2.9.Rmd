@@ -7,70 +7,136 @@ output:
     toc_float:
       toc_collapsed: false    
       smooth_scroll: false
+    number_sections: false
     toc_depth: 3
 ---
 
-# Data set
-
-```{r message = FALSE}
-library(ISLR2)
-library(tidyverse)
-library(magrittr)
-library(GGally)
-data(Auto)
-```
-
-Note that since I am using the `ISLR2` package to import the data set, it is already in good condition. Start with some elementary summaries, including the data types:
-
-```{r}
-glimpse(Auto)
-```
-
-The qualitative variables are `origin` and `name`. I would rather treat `cylinders` as a quantitative variable since in technicality this variable can take any positive integer value (although in practice this can be very difficult to achieve). However, the qualitative argument also has some truth to it. Let us adjust some of the variable data types to better reflect our understanding of them:
-
-```{r}
-Auto %<>% mutate(origin = as.factor(origin))
-```
-
-and now for some summaries of the variables:
-
-```{r}
-summary(Auto)
-```
-
-Calculate the variable ranges:
-
-```{r}
-agg_fn <- function(c) {
-  c(mean = mean(c), sd = sd(c), min = min(c), max = max(c))
+```{r include = FALSE} 
+panel.hist <- function(x, ...)
+{
+    usr <- par("usr")
+    par(usr = c(usr[1:2], 0, 1.5) )
+    h <- hist(x, plot = FALSE)
+    breaks <- h$breaks; nB <- length(breaks)
+    y <- h$counts; y <- y/max(y)
+    rect(breaks[-nB], 0, breaks[-1], y, ...)
 }
 
-var_ranges <- Auto %>%
-  select_if(is.numeric) %>%
-  reframe(across(everything(), agg_fn))
+panel.cor <- function(x, y, digits = 2, prefix = "", cex.cor, ...)
+{
+    par(usr = c(0, 1, 0, 1))
+    r <- cor(x, y)
+    txt <- format(c(r, 0.123456789), digits = digits)[1]
+    txt <- paste0(prefix, txt)
+    text(0.5, 0.5, txt, cex = 1.5)
+}
 
-rownames(var_ranges) <- c("mean", "sd", "min", "max")
-
-knitr::kable(var_ranges, caption = "Descriptive statistics of quantitative variables in the `Auto` data set.", digits = 2)
+pair_plot <- function(x) { pairs(x, diag.panel = panel.hist, upper.panel = panel.cor) }
 ```
 
+# Part (a)
+Which of the predictors are quantitative, and which are qualitative?
+
+```{r message = FALSE}
+library(tidyverse)
+library(ISLR2)
+
+data(Auto)
+attach(Auto)
+```
+
+  
+The quantitative variables are `mpg`, `cylinders`, `displacement`, `horsepower`, `weight`, `acceleration`, `year` whereas
+the qualitative ones are `name` and `origin`.
+
+# Part (b)
+What is the range of each quantitative predictor? You can answer this using the `range` function.
 
 ```{r}
+ranges <- sapply(Auto[, 1:7], range)
+rownames(ranges) <- c("min", "max")
 
-Auto_Subset <- Auto[-c(10:85),]
-
-agg_filtered <- Auto_Subset %>% select_if(is.numeric) %>%
-  reframe(across(everything(), agg_fn))
-
-rownames(agg_filtered) <- c("mean", "sd", "min", "max")
-
-knitr::kable(agg_filtered, caption = "Descriptive statistics for the filtered `Auto` data set.", digits = 2)
+ranges
 ```
 
-Pair plots to investigate relationship:
+# Part (c)
+What is the mean and standard deviation of each quantitative predictor?
 
-```{r message = FALSE, fig.cap = "Pair plot of variables in the data set."}
-ggpairs(Auto %>% select(-c("name")), progress = FALSE)
+```{r}
+means <- sapply(Auto[, 1:7], function(c) list(mean = mean(c), sd = sd(c)))
+means
 ```
 
-The pair plot shows a plethora of strong correlations, e.g. `cylinders` and `displacement`, `horsepower` and `weight`, `weight` and `displacement`, etc. Looking at `mpg`, it would seem that `displacement`, `horsepower` and `weight` share a quadratic or polynomial relationship with `mpg`, which we could indeed in clude in our model. The variables `year` and `origin` seem to have a linear relationship with this variable, and decently strong ones juding by the correlation coefficients. We might have to take care in variable selection as some of the variables are seemingly quite collinear.
+# Part (d)
+Now remove the 10th through 85th observations. What is the range, mean and standard deviation
+of each predictor in the subset of the data that remains?
+
+```{r}
+ssAuto <- Auto[-c(10:85),]
+
+means <- sapply(Auto[, 1:7], function(c) list(min = min(c), max = max(c), mean = mean(c), sd = sd(c)))
+means
+```
+
+# Part (e)
+Using the full data set, investigate the predictors graphically, using scatterplots or other tools
+of your choice. Create some plots highlighting the relationships among the predictors. Comment on your findings.
+
+```{r}
+pair_plot(Auto)
+```
+
+```{r}
+par(mfrow = c(2, 2))
+
+plot_rel <- function(col1, col2) {
+  plot(col1, col2, xlab = substitute(col1), ylab = substitute(col2))
+  abline(lm(col2 ~ col1), col = "red", lwd = 1.5)
+}
+
+
+plot_rel(weight, displacement)
+plot_rel(horsepower, acceleration)
+plot_rel(weight, acceleration)
+plot_rel(displacement, acceleration)
+```
+
+Couple of very strong linear relationships, shown above.
+
+- Displacement is an expression of engine weight, so it is not surprising it correlates with total weight
+- Horsepower and acceleration show a decreasing relationship, perhaps because increased horsepower correlated
+  with increased engine size and thus more weight.
+- Weight and acceleration are negatively correlated, same jutification as above.
+- Same as above.
+
+# Part (f)
+Suppose that we wish to predict gas mileage (`mpg`) on the basis of the other variables. Do your plots suggest that any of the
+other variables might be useful in predicting `mpg`? Justify your answer.
+
+Yes, `displacement`, `weight`, `horsepower`, `acceleration` and `year` all seem to be useful for this task at a first glance.
+Let's take a look visually, and add some fits to illustrate the relationship more clearly.
+
+```{r}
+par(mfrow = c(2, 2))
+
+plot_quad <- function(col1, col2) {
+  plot(col1, col2, xlab = substitute(col1), ylab = substitute(col2))
+  lines(lowess(col1, col2), col = 2, lwd = 2)
+  
+  polfit <- lm(col2 ~ col1 + I(col1^2) + I(col1^2))
+  pred <- predict(polfit)
+  ord <- order(displacement)
+  
+  lines(col1[ord], pred[ord], col = 4, lwd = 2)
+  
+  legend("topright", inset = c(0.025, 0.025), legend = c("LOWESS", "Polynomial"), lwd = 2, col = c(2, 4),
+         bty = "n", cex = 0.75)
+}
+
+plot_quad(displacement, mpg)
+plot_quad(horsepower, mpg)
+plot_quad(weight, mpg)
+plot_rel(year, mpg)
+```
+
+However we might need to take into account interaction effect between variables and collinearity.
