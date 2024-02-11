@@ -1,266 +1,108 @@
 ---
-title: "Week 2— Exercise 3.13"
+title: "Exercise 5.9"
 author: "Kári Hlynsson"
-output: 
-  bookdown::html_document2:
-    toc: true
-    toc_float:
-      toc_collapsed: false    
-      smooth_scroll: false
-    toc_depth: 3
+date: "2024-01-21"
+output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, fig.align = "center")
-```
+We will now consider the `Boston` housing data set, from the `ISLR2` library.
 
-# Packages
+## Part (a)
+
+Based on this data set, provide an estimate for the population mean of `medv`. Call this estimate $\hat\mu$.
 
 ```{r message = FALSE}
 library(ISLR2)
-library(MASS)
-library(tidyverse)
-library(magrittr)
-library(gridExtra)
-library(GGally)
-library(caret)
-library(pROC)
-library(class)
-library(equatiomatic)
+data(Boston)
+attach(Boston)
 
-data(Weekly)
-```
-
-## Part (a)
-> Produce some numerical and graphical summaries of the Weekly data. Do there appear to be any patterns?
-
-```{r}
-glimpse(Weekly)
+n <- nrow(Boston)
+p <- ncol(Boston)
 ```
 
 ```{r}
-summary(Weekly)
+hat_mu <- mean(medv)
+hat_mu
 ```
-
-Look for correlation between variables in data set.
-
-```{r}
-cor(Weekly |> select(-Direction))
-```
-
-There aren't any strikingly strong correlations between variables to be seen.
-Visualise with improved pair plot to scan for correlations.
-
-```{r message = FALSE}
-ggpairs(Weekly)
-```
-
-All of the lag variables seem to be rather normally distributed as well as `Today`, and volume seems to be very left skewed. Let's
-create some distribution diagrams.
-
-```{r message = FALSE}
-hist_fn <- function(c) {
-  plot <- ggplot(Weekly, aes(x = get(c))) + 
-    geom_histogram() + 
-    labs(
-      x = paste(c),
-      y = "Frequency"
-    )
-  return(plot)
-}
-
-grobs <- Weekly |> 
-  select_if(is.numeric) |>
-  colnames() |>
-  lapply(hist_fn)
-
-grid.arrange(grobs = grobs, nrow = 3)
-```
-
-There aren't really any observable relationships between variables.
 
 ## Part (b)
-> Use the full data set to perform a logistic regression with
-`Direction` as the response and the five lag variables plus `Volume` as predictors. Use the `summary` function to print the results. Do any of the predictors appear to be statistically significant? If so, which ones?
+
+Provide an estimate of the standard error of $\hat\mu$. Interpret this result.
+
+*Hint: We can compute the standard error of the sample mean by dividing the sample standard deviation by the square root of the number of observations.*
+
+By the central limit theorem, we have that the distribution of the mean of `medv` given a random sample is normal with mean $\hat\mu$ and standard deviation $\sigma/\sqrt{n}$. Thus we can approximate this as follows:
 
 ```{r}
-glm.fits <- glm(Direction ~ Lag1 + Lag2 + Lag3 + Lag4 + Lag5 + Volume, family = binomial, data = Weekly)
+se_hat_mu <- sd(medv) / sqrt(n)
+se_hat_mu
 ```
-
-```{r}
-summary(glm.fits)
-```
-All of the non-intercept coefficients except `Lag2` fail to be significant in hypothesis tests.
 
 ## Part (c)
-> Compute the confusion matrix and overall fraction of correct predictions. Explain what the confusion matrix is telling you about the types of mistakes made by logistic regression.
 
-Construct the confusion matrix:
-
-```{r}
-glm.probs <- predict(glm.fits, type = "response")
-
-glm.pred <- rep("Down", nrow(Weekly))
-glm.pred[glm.probs > 0.5] <- "Up"
-glm.pred <- as.factor(glm.pred)
-
-table(glm.pred, Weekly$Direction)
-```
-The accuracy of logistic regression as a classifier is given by
+Now estimate the standard error of $\hat\mu$ using the bootstrap. How does this compare to your answer from (b)?
 
 ```{r}
-sum(glm.pred == Weekly$Direction) / nrow(Weekly)
+library(boot)
+
+boot.fn <- function(data, index) mean(data[index])
+boot.res <- boot(medv, boot.fn, R = 10000)
+
+boot.res
 ```
 
-The accuracy is $0.5610652$, or approximately $56.11\%$. The confusion matrix we computed
-tells us that 54 observations were correctly classified as `Down`, whereas 430 observations
-were incorrectly classified as `Up`. The false positive rate (FPR, or sensitivity) is thus
-
-```{r}
-54 / (430 + 54)
-```
-
-or about $11\%$, not good. The true positive rate (TPR, specificity) is
-
-```{r}
-557 / (557 + 48)
-```
-
-or $92\%$, which is pretty good.
-
-```{r}
-confusionMatrix(glm.pred, Weekly$Direction)
-```
+The estimate is very similar to the one from before.
 
 ## Part (d)
-> Now fit the logistic regression model using a training data period from 1990 to 2008, with `Lag2` as the only predictor. Compute the confusion matrix and the overall fraction of correct predictions for the held out data (that is, the data from 2009 and 2010).
-  
-Split into test and training data:
+
+Based on your bootstrap estimate from (c), provide a 95% confidence interval for the mean of `medv`. Compare it to the results obtained using `t.test(Boston$medv)`.
+
+*Hint: You can approximate a 95% confidence interval using the formula* $[\hat\mu - 1.96 \cdot \mathrm{SE}(\hat\mu), \hat\mu + 1.96 \cdot \mathrm{SE}(\hat\mu)]$.
 
 ```{r}
-train <- Weekly |> filter(Year %in% 1990:2008)
-test  <- Weekly |> anti_join(train, by = join_by(Year))
-```
+se_boot <- sd(boot.res$t)
 
-Fit the logistic regression model:
-
-```{r}
-glm.fit <- glm(Direction ~ Lag2, family = binomial, data = train)
-summary(glm.fit)
-```
-
-The fit is as follows:
-
-```{r}
-extract_eq(glm.fit)
-```
-
-Let's evaluate it on the test data set:
-
-```{r}
-glm.probs <- predict(glm.fit, test, type = "response")
-
-glm.pred <- rep("Down", nrow(test))
-glm.pred[glm.probs > 0.5] <- "Up"
-glm.pred <- as.factor(glm.pred)
-```
-
-Construct the confusion matrix:
-
-```{r}
-confusionMatrix(glm.pred, test$Direction)
+ci_t <- t.test(medv)$conf.int
+ci_b <- c(hat_mu - se_boot, hat_mu + se_boot)
 ```
 
 ## Part (e)
-> Repeat (d) using LDA.
+
+Based on this data set, provide an estimate, $\hat\mu_{\mathrm{med}}$, for the median value of `medv` in the population.
 
 ```{r}
-lda.fit  <- lda(Direction ~ Lag2, data = train)
-lda.pred <- predict(lda.fit, test)
-
-confusionMatrix(lda.pred$class, test$Direction)
+hat_median <- median(medv)
+hat_median
 ```
-
-Identical to logistic regression classifier.
 
 ## Part (f)
-> Repeat  (d) using QDA.
 
-Fit:
+We now would like to estimate the standard error of $\hat\mu_{\mathrm{med}}$. Unfortunately, there is no simple formula for computing the standard error of the median. Instead, estimate the standard error of the median using the bootstrap. Comment on your findings.
 
 ```{r}
-qda.fit  <- qda(Direction ~ Lag2, data = train)
-qda.pred <- predict(qda.fit, test)
-
-confusionMatrix(qda.pred$class, test$Direction)
+boot.fn  <- function(data, index) median(data[index])
+boot.res <- boot(medv, boot.fn, R = 10000)
+boot.res
 ```
 
-Weird performance.
+The estimated standard error is 0.3778103.
 
 ## Part (g)
-> Repeat (d) using KNN with \(K = 1\).
+
+Based on this data set, provide an estimate for the tenth percentile of `medv` in Boston census tracts. Call this quantity $\hat\mu_{0.1}$. (You can use the `quantile()` function.)
 
 ```{r}
-set.seed(1)
-
-train.X <- train |> select(-Direction)
-train.Y <- train |> pull(Direction)
-
-test.X <- test |> select(-Direction)
-
-knn.pred <- knn(train.X, test.X, train.Y, k = 1)
-
-confusionMatrix(knn.pred, test$Direction)
+quantile(medv, 0.1)
 ```
-
-The KNN classifier is performing quite well!
 
 ## Part (h)
-> Repeat (d) using Naive Bayes.
+
+Use the bootstrap to estimate the standard error of $\hat\mu_{0.1}$. Comment on your findings.
 
 ```{r}
-library(e1071)
-
-nb.fit <- naiveBayes(Direction ~ Lag2, data = train)
-nb.pred <- predict(nb.fit, test)
-
-confusionMatrix(nb.pred, test$Direction)
+boot.fn <- function(data, index) quantile(data[index], 0.1)
+boot.res <- boot(medv, boot.fn, R = 10000)
+boot.res
 ```
 
-Predicts up for everything — really bad performance.
-
-## Part (i)
-> Which of these methods appears to provide the best results on this data?
-
-KNN has the best accuracy.
-
-## Part (j)
-> Experiment with different combinations of predictors, includ- ing possible transformations and interactions, for each of the methods. Report the variables, method, and associated confusion matrix that appears to provide the best results on the held out data. Note that you should also experiment with values for K in the KNN classifier.
-
-Vary \(K\) parameter for more accuracy. Find the "elbow" on a graph of \(K\) vs test set error to optimise bias-variance tradeoff.
-
-```{r}
-k.optim <- sapply(1:20, function(k) {
-  l <- c()
-  for (i in 1:1000) {
-    knn.pred <- knn(train.X, test.X, train.Y, k = k)
-    accuracy <- confusionMatrix(knn.pred, test$Direction)$overall[["Accuracy"]]
-    l <- append(l, accuracy)
-  }
-  mean.accuracy <- mean(l)
-})
-```
-
-```{r}
-k.data <- data.frame(k.optim, k.val = 1:20)
-
-plot(k.data$k.val, k.data$k.optim, xlab = "K", ylab = "Accuracy", type = "o")
-```
-
-Which value of \(K\) is performing best?
-
-```{r}
-k.data |> arrange(desc(k.optim))
-```
-
-It seems like the best value is \(K = 11\).
+The standard error is 0.5075533.

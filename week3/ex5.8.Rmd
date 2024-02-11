@@ -1,266 +1,147 @@
 ---
-title: "Week 2— Exercise 3.13"
+title: "Exercise 5.8"
 author: "Kári Hlynsson"
-output: 
-  bookdown::html_document2:
-    toc: true
-    toc_float:
-      toc_collapsed: false    
-      smooth_scroll: false
-    toc_depth: 3
+date: "2024-01-21"
+output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, fig.align = "center")
-```
-
-# Packages
-
-```{r message = FALSE}
-library(ISLR2)
-library(MASS)
-library(tidyverse)
-library(magrittr)
-library(gridExtra)
-library(GGally)
-library(caret)
-library(pROC)
-library(class)
-library(equatiomatic)
-
-data(Weekly)
-```
+We will now perform cross-validation on a simulated data set.
 
 ## Part (a)
-> Produce some numerical and graphical summaries of the Weekly data. Do there appear to be any patterns?
 
-```{r}
-glimpse(Weekly)
+Generate a simulated data set as follows:
+
+``` r
+set.seed(1)
+x <- rnorm(100)
+y <- x - 2 * x^2 + rnorm(100)
 ```
 
-```{r}
-summary(Weekly)
-```
-
-Look for correlation between variables in data set.
-
-```{r}
-cor(Weekly |> select(-Direction))
-```
-
-There aren't any strikingly strong correlations between variables to be seen.
-Visualise with improved pair plot to scan for correlations.
-
-```{r message = FALSE}
-ggpairs(Weekly)
-```
-
-All of the lag variables seem to be rather normally distributed as well as `Today`, and volume seems to be very left skewed. Let's
-create some distribution diagrams.
-
-```{r message = FALSE}
-hist_fn <- function(c) {
-  plot <- ggplot(Weekly, aes(x = get(c))) + 
-    geom_histogram() + 
-    labs(
-      x = paste(c),
-      y = "Frequency"
-    )
-  return(plot)
-}
-
-grobs <- Weekly |> 
-  select_if(is.numeric) |>
-  colnames() |>
-  lapply(hist_fn)
-
-grid.arrange(grobs = grobs, nrow = 3)
-```
-
-There aren't really any observable relationships between variables.
-
-## Part (b)
-> Use the full data set to perform a logistic regression with
-`Direction` as the response and the five lag variables plus `Volume` as predictors. Use the `summary` function to print the results. Do any of the predictors appear to be statistically significant? If so, which ones?
-
-```{r}
-glm.fits <- glm(Direction ~ Lag1 + Lag2 + Lag3 + Lag4 + Lag5 + Volume, family = binomial, data = Weekly)
-```
-
-```{r}
-summary(glm.fits)
-```
-All of the non-intercept coefficients except `Lag2` fail to be significant in hypothesis tests.
-
-## Part (c)
-> Compute the confusion matrix and overall fraction of correct predictions. Explain what the confusion matrix is telling you about the types of mistakes made by logistic regression.
-
-Construct the confusion matrix:
-
-```{r}
-glm.probs <- predict(glm.fits, type = "response")
-
-glm.pred <- rep("Down", nrow(Weekly))
-glm.pred[glm.probs > 0.5] <- "Up"
-glm.pred <- as.factor(glm.pred)
-
-table(glm.pred, Weekly$Direction)
-```
-The accuracy of logistic regression as a classifier is given by
-
-```{r}
-sum(glm.pred == Weekly$Direction) / nrow(Weekly)
-```
-
-The accuracy is $0.5610652$, or approximately $56.11\%$. The confusion matrix we computed
-tells us that 54 observations were correctly classified as `Down`, whereas 430 observations
-were incorrectly classified as `Up`. The false positive rate (FPR, or sensitivity) is thus
-
-```{r}
-54 / (430 + 54)
-```
-
-or about $11\%$, not good. The true positive rate (TPR, specificity) is
-
-```{r}
-557 / (557 + 48)
-```
-
-or $92\%$, which is pretty good.
-
-```{r}
-confusionMatrix(glm.pred, Weekly$Direction)
-```
-
-## Part (d)
-> Now fit the logistic regression model using a training data period from 1990 to 2008, with `Lag2` as the only predictor. Compute the confusion matrix and the overall fraction of correct predictions for the held out data (that is, the data from 2009 and 2010).
-  
-Split into test and training data:
-
-```{r}
-train <- Weekly |> filter(Year %in% 1990:2008)
-test  <- Weekly |> anti_join(train, by = join_by(Year))
-```
-
-Fit the logistic regression model:
-
-```{r}
-glm.fit <- glm(Direction ~ Lag2, family = binomial, data = train)
-summary(glm.fit)
-```
-
-The fit is as follows:
-
-```{r}
-extract_eq(glm.fit)
-```
-
-Let's evaluate it on the test data set:
-
-```{r}
-glm.probs <- predict(glm.fit, test, type = "response")
-
-glm.pred <- rep("Down", nrow(test))
-glm.pred[glm.probs > 0.5] <- "Up"
-glm.pred <- as.factor(glm.pred)
-```
-
-Construct the confusion matrix:
-
-```{r}
-confusionMatrix(glm.pred, test$Direction)
-```
-
-## Part (e)
-> Repeat (d) using LDA.
-
-```{r}
-lda.fit  <- lda(Direction ~ Lag2, data = train)
-lda.pred <- predict(lda.fit, test)
-
-confusionMatrix(lda.pred$class, test$Direction)
-```
-
-Identical to logistic regression classifier.
-
-## Part (f)
-> Repeat  (d) using QDA.
-
-Fit:
-
-```{r}
-qda.fit  <- qda(Direction ~ Lag2, data = train)
-qda.pred <- predict(qda.fit, test)
-
-confusionMatrix(qda.pred$class, test$Direction)
-```
-
-Weird performance.
-
-## Part (g)
-> Repeat (d) using KNN with \(K = 1\).
+In this data set, what is $n$ and what is $p$? Write out the model used to generate the data in equation form.
 
 ```{r}
 set.seed(1)
-
-train.X <- train |> select(-Direction)
-train.Y <- train |> pull(Direction)
-
-test.X <- test |> select(-Direction)
-
-knn.pred <- knn(train.X, test.X, train.Y, k = 1)
-
-confusionMatrix(knn.pred, test$Direction)
+x <- rnorm(100)
+y <- x - 2 * x^2 + rnorm(100)
 ```
 
-The KNN classifier is performing quite well!
+The model we have generated has $n = 100$ and $p = 2$ and
 
-## Part (h)
-> Repeat (d) using Naive Bayes.
+$$
+X \sim \mathcal N(\mathbf{0}, \mathbf I_{100}) \quad \text{and} \quad Y \sim \mathcal N(X - 2X^2, \sigma^2 \mathbf{I}_{100}).
+$$
+
+## Part (b)
+
+Create a scatter plot of $X$ against $Y$. Comment on what you find.
 
 ```{r}
-library(e1071)
-
-nb.fit <- naiveBayes(Direction ~ Lag2, data = train)
-nb.pred <- predict(nb.fit, test)
-
-confusionMatrix(nb.pred, test$Direction)
+plot(x, y, xlab = "X", ylab = "Y")
 ```
 
-Predicts up for everything — really bad performance.
+Parabola shape.
 
-## Part (i)
-> Which of these methods appears to provide the best results on this data?
+## Part (c)
 
-KNN has the best accuracy.
+Set a random seed, and then compute the LOOCV errors that result from fitting the following four models using least squares:
 
-## Part (j)
-> Experiment with different combinations of predictors, includ- ing possible transformations and interactions, for each of the methods. Report the variables, method, and associated confusion matrix that appears to provide the best results on the held out data. Note that you should also experiment with values for K in the KNN classifier.
+1.  $Y = \beta_0 + \beta_1 X + \epsilon$
 
-Vary \(K\) parameter for more accuracy. Find the "elbow" on a graph of \(K\) vs test set error to optimise bias-variance tradeoff.
+2.  $Y = \beta_0 + \beta_1 X + \beta_2 X^2 + \epsilon$
+
+3.  $Y = \beta_0 + \beta_1 X + \beta_2 X^2 + \beta_3 X^3 + \epsilon$
+
+4.  $Y = \beta_0 + \beta_1 X + \beta_2 X^2 + \beta_3 X^3 + \beta_4 X^4 + \epsilon$
+
+Note that you may find it helpful to use the `data.frame()` function to create a single data set containing both $X$ and $Y$.
 
 ```{r}
-k.optim <- sapply(1:20, function(k) {
-  l <- c()
-  for (i in 1:1000) {
-    knn.pred <- knn(train.X, test.X, train.Y, k = k)
-    accuracy <- confusionMatrix(knn.pred, test$Direction)$overall[["Accuracy"]]
-    l <- append(l, accuracy)
-  }
-  mean.accuracy <- mean(l)
+library(boot)
+df <- data.frame(x, y)
+
+cv.res <- sapply(1:4, function(d) {
+  glm.fit <- glm(y ~ poly(x, d, raw = TRUE), data = df)
+  loocv <- cv.glm(df, glm.fit)$delta
+
+  names(loocv) <- c("raw", "biased")
+  return(list(loocv, glm.fit))
 })
+
+cv_errs <- do.call(cbind, cv.res[1,])
+colnames(cv_errs) <- paste0("model", 1:4)
+
+models <- boot.res[2,]
 ```
+
+The cross validation errors are virtually identical for each model, so there does not seem to be any induced bias in the LOOCV process.
 
 ```{r}
-k.data <- data.frame(k.optim, k.val = 1:20)
-
-plot(k.data$k.val, k.data$k.optim, xlab = "K", ylab = "Accuracy", type = "o")
+plot(1:4, cv_errs[1,], type = "b", xlab = "Polynomial degree", ylab = "LOOCV error")
 ```
 
-Which value of \(K\) is performing best?
+Upon including the quadratic term most of the variance in the data. In fact, the cubic and quartic terms fail to reach statistical significance. This is evident when displaying the models visually against the data.
 
 ```{r}
-k.data |> arrange(desc(k.optim))
+plot(df$x, df$y, xlab = "X", ylab = "Y")
+sapply(1:4, function(d) {
+  poly.mdl  <- models[[d]]
+  poly.pred <- predict(poly.mdl, df)
+  ord <- order(x)
+  
+  lines(x[ord], poly.pred[ord], col = d + 1, lwd = 2.5, lty = d)
+})
+
+legend("bottom", inset = c(0.05, 0.05), legend = paste("Model", 1:4), horiz = TRUE,
+       lwd = 2.5, col = 2:5, lty = 1:4, cex = 0.8, bty = "n")
 ```
 
-It seems like the best value is \(K = 11\).
+## Part (d)
+
+Repeat (c) using another random seed, and report your results. Are your results the same as what you got in (c)? Why?
+
+When the code below is run it shows very little different in the results, only in the visualisation do we see a difference which stems solely from the fact that a different random vector underlies the data and thus the range will vary accordingly.
+
+```{r}
+set.seed(42)
+x <- rnorm(100)
+y <- x - 2 * x^2 + rnorm(100)
+
+df <- data.frame(x, y)
+
+cv.res <- sapply(1:4, function(d) {
+  glm.fit <- glm(y ~ poly(x, d, raw = TRUE), data = df)
+  loocv <- cv.glm(df, glm.fit)$delta
+
+  names(loocv) <- c("raw", "biased")
+  return(list(loocv, glm.fit))
+})
+
+cv_errs <- do.call(cbind, cv.res[1,])
+colnames(cv_errs) <- paste0("model", 1:4)
+
+models <- boot.res[2,]
+
+plot(df$x, df$y, xlab = "X", ylab = "Y")
+sapply(1:4, function(d) {
+  poly.mdl  <- models[[d]]
+  poly.pred <- predict(poly.mdl, df)
+  ord <- order(x)
+  
+  lines(x[ord], poly.pred[ord], col = d + 1, lwd = 2.5, lty = d)
+})
+
+legend("bottom", inset = c(0.05, 0.05), legend = paste("Model", 1:4), horiz = TRUE,
+       lwd = 2.5, col = 2:5, lty = 1:4, cex = 0.8, bty = "n")
+```
+
+## Part (e)
+
+Which of the models in (c) had the smallest LOOCV error? Is that what you expected? Explain your answer.
+
+Model 2, I have explained this.
+
+## Part (f)
+
+Comment on the statistical significance of the coefficient estimates that results from fitting each of the models in (c) using least squares. Do these results agree with the conclusions drawn based on the cross-validation results?
+
+Yes, I have explained this above.
