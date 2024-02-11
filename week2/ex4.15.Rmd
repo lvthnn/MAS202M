@@ -50,11 +50,7 @@ Power3 <- function(x, a) {
 x <- 1:10
 y <- Power3(x, 2)
 
-ggplot(data.frame(x, y), aes(x, y)) +
-  geom_line() +
-  labs(
-      title = "Plot of f(x) = x²"
-  )
+plot(x, y, type = "l", ylab = expression(x^3))
 ```
 
 ## Part (f)
@@ -62,13 +58,8 @@ ggplot(data.frame(x, y), aes(x, y)) +
 ```{r}
 PlotPower <- function(xs, a) {
   ys <- Power3(xs, a)
-  ggplot(
-    data.frame(xs, ys),
-    aes(xs, ys)
-  ) + geom_line()
+  plot(xs, ys, type = "l", xlab = "x", ylab = expression(x^3))
 }
 
 PlotPower(1:10, 3)
 ```
-
-## 

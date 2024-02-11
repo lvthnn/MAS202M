@@ -10,33 +10,43 @@ output:
     toc_depth: 3
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, fig.align = "center")
-```
+```{r, include=FALSE}
+panel.hist <- function(x, ...)
+{
+    usr <- par("usr")
+    par(usr = c(usr[1:2], 0, 1.5) )
+    h <- hist(x, plot = FALSE)
+    breaks <- h$breaks; nB <- length(breaks)
+    y <- h$counts; y <- y/max(y)
+    rect(breaks[-nB], 0, breaks[-1], y, ...)
+}
 
-# Packages
+panel.cor <- function(x, y, digits = 2, prefix = "", cex.cor, ...)
+{
+    par(usr = c(0, 1, 0, 1))
+    r <- cor(x, y)
+    txt <- format(c(r, 0.123456789), digits = digits)[1]
+    txt <- paste0(prefix, txt)
+    text(0.5, 0.5, txt, cex = 1.5)
+}
+
+pair_plot <- function(x) { pairs(x, diag.panel = panel.hist, upper.panel = panel.cor) }
+```
 
 ```{r message = FALSE}
 library(ISLR2)
 library(MASS)
-library(tidyverse)
-library(magrittr)
-library(gridExtra)
-library(GGally)
 library(caret)
 library(pROC)
 library(class)
 library(equatiomatic)
 
 data(Weekly)
+attach(Weekly)
 ```
 
-## Part (a)
-> Produce some numerical and graphical summaries of the Weekly data. Do there appear to be any patterns?
-
-```{r}
-glimpse(Weekly)
-```
+# Part (a)
+Produce some numerical and graphical summaries of the Weekly data. Do there appear to be any patterns?
 
 ```{r}
 summary(Weekly)
@@ -45,43 +55,29 @@ summary(Weekly)
 Look for correlation between variables in data set.
 
 ```{r}
-cor(Weekly |> select(-Direction))
+cor(Weekly[,-9])
 ```
 
 There aren't any strikingly strong correlations between variables to be seen.
 Visualise with improved pair plot to scan for correlations.
 
 ```{r message = FALSE}
-ggpairs(Weekly)
+pair_plot(Weekly)
 ```
 
 All of the lag variables seem to be rather normally distributed as well as `Today`, and volume seems to be very left skewed. Let's
 create some distribution diagrams.
 
 ```{r message = FALSE}
-hist_fn <- function(c) {
-  plot <- ggplot(Weekly, aes(x = get(c))) + 
-    geom_histogram() + 
-    labs(
-      x = paste(c),
-      y = "Frequency"
-    )
-  return(plot)
-}
+par(mfrow = c(2, 4))
 
-grobs <- Weekly |> 
-  select_if(is.numeric) |>
-  colnames() |>
-  lapply(hist_fn)
-
-grid.arrange(grobs = grobs, nrow = 3)
+for (i in 1:8) hist(Weekly[,i], main = NA, xlab = colnames(Weekly)[i])
 ```
 
 There aren't really any observable relationships between variables.
 
 ## Part (b)
-> Use the full data set to perform a logistic regression with
-`Direction` as the response and the five lag variables plus `Volume` as predictors. Use the `summary` function to print the results. Do any of the predictors appear to be statistically significant? If so, which ones?
+Use the full data set to perform a logistic regression with `Direction` as the response and the five lag variables plus `Volume` as predictors. Use the `summary` function to print the results. Do any of the predictors appear to be statistically significant? If so, which ones?
 
 ```{r}
 glm.fits <- glm(Direction ~ Lag1 + Lag2 + Lag3 + Lag4 + Lag5 + Volume, family = binomial, data = Weekly)
@@ -93,7 +89,7 @@ summary(glm.fits)
 All of the non-intercept coefficients except `Lag2` fail to be significant in hypothesis tests.
 
 ## Part (c)
-> Compute the confusion matrix and overall fraction of correct predictions. Explain what the confusion matrix is telling you about the types of mistakes made by logistic regression.
+Compute the confusion matrix and overall fraction of correct predictions. Explain what the confusion matrix is telling you about the types of mistakes made by logistic regression.
 
 Construct the confusion matrix:
 
@@ -133,13 +129,13 @@ confusionMatrix(glm.pred, Weekly$Direction)
 ```
 
 ## Part (d)
-> Now fit the logistic regression model using a training data period from 1990 to 2008, with `Lag2` as the only predictor. Compute the confusion matrix and the overall fraction of correct predictions for the held out data (that is, the data from 2009 and 2010).
+Now fit the logistic regression model using a training data period from 1990 to 2008, with `Lag2` as the only predictor. Compute the confusion matrix and the overall fraction of correct predictions for the held out data (that is, the data from 2009 and 2010).
   
 Split into test and training data:
 
 ```{r}
-train <- Weekly |> filter(Year %in% 1990:2008)
-test  <- Weekly |> anti_join(train, by = join_by(Year))
+train <- Weekly[Year %in% 1990:2008,]
+test  <- Weekly[!(Year %in% 1990:2008),]
 ```
 
 Fit the logistic regression model:
@@ -172,7 +168,7 @@ confusionMatrix(glm.pred, test$Direction)
 ```
 
 ## Part (e)
-> Repeat (d) using LDA.
+Repeat (d) using LDA.
 
 ```{r}
 lda.fit  <- lda(Direction ~ Lag2, data = train)
@@ -184,7 +180,7 @@ confusionMatrix(lda.pred$class, test$Direction)
 Identical to logistic regression classifier.
 
 ## Part (f)
-> Repeat  (d) using QDA.
+Repeat (d) using QDA.
 
 Fit:
 
@@ -198,15 +194,15 @@ confusionMatrix(qda.pred$class, test$Direction)
 Weird performance.
 
 ## Part (g)
-> Repeat (d) using KNN with \(K = 1\).
+Repeat (d) using KNN with \(K = 1\).
 
 ```{r}
 set.seed(1)
 
-train.X <- train |> select(-Direction)
-train.Y <- train |> pull(Direction)
+train.X <- train[,-9]
+train.Y <- train[, 9]
 
-test.X <- test |> select(-Direction)
+test.X <- test[,-9]
 
 knn.pred <- knn(train.X, test.X, train.Y, k = 1)
 
@@ -216,7 +212,7 @@ confusionMatrix(knn.pred, test$Direction)
 The KNN classifier is performing quite well!
 
 ## Part (h)
-> Repeat (d) using Naive Bayes.
+Repeat (d) using Naive Bayes.
 
 ```{r}
 library(e1071)
@@ -230,12 +226,12 @@ confusionMatrix(nb.pred, test$Direction)
 Predicts up for everything — really bad performance.
 
 ## Part (i)
-> Which of these methods appears to provide the best results on this data?
+Which of these methods appears to provide the best results on this data?
 
 KNN has the best accuracy.
 
 ## Part (j)
-> Experiment with different combinations of predictors, includ- ing possible transformations and interactions, for each of the methods. Report the variables, method, and associated confusion matrix that appears to provide the best results on the held out data. Note that you should also experiment with values for K in the KNN classifier.
+Experiment with different combinations of predictors, including possible transformations and interactions, for each of the methods. Report the variables, method, and associated confusion matrix that appears to provide the best results on the held out data. Note that you should also experiment with values for K in the KNN classifier.
 
 Vary \(K\) parameter for more accuracy. Find the "elbow" on a graph of \(K\) vs test set error to optimise bias-variance tradeoff.
 
@@ -260,7 +256,7 @@ plot(k.data$k.val, k.data$k.optim, xlab = "K", ylab = "Accuracy", type = "o")
 Which value of \(K\) is performing best?
 
 ```{r}
-k.data |> arrange(desc(k.optim))
+k.data[order(k.data$k.optim, decreasing = TRUE),]
 ```
 
 It seems like the best value is \(K = 11\).

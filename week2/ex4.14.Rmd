@@ -11,9 +11,29 @@ knitr::opts_chunk$set(echo = TRUE)
 library(MASS)
 library(e1071)
 library(class)
-library(tidyverse)
 library(caret)
 library(ISLR2)
+
+panel.hist <- function(x, ...)
+{
+    usr <- par("usr")
+    par(usr = c(usr[1:2], 0, 1.5) )
+    h <- hist(x, plot = FALSE)
+    breaks <- h$breaks; nB <- length(breaks)
+    y <- h$counts; y <- y/max(y)
+    rect(breaks[-nB], 0, breaks[-1], y, ...)
+}
+
+panel.cor <- function(x, y, digits = 2, prefix = "", cex.cor, ...)
+{
+    par(usr = c(0, 1, 0, 1))
+    r <- cor(x, y)
+    txt <- format(c(r, 0.123456789), digits = digits)[1]
+    txt <- paste0(prefix, txt)
+    text(0.5, 0.5, txt, cex = 1.5)
+}
+
+pair_plot <- function(x) { pairs(x, diag.panel = panel.hist, upper.panel = panel.cor) }
 ```
 
 
@@ -24,17 +44,16 @@ Create a binary variable, `mpg01`, that contains a 1 if `mpg` contains a value a
 
 ```{r}
 data(Auto)
+attach(Auto)
 
-Auto <- Auto |> mutate(mpg01 = factor(ifelse(mpg > median(mpg), 1, 0)))
+Auto$mpg01 <- factor(ifelse(mpg > median(mpg), 1, 0))
 ```
 
 ## Part (b)
 Explore the data graphically in order to investigate the association between `mpg01` and the other features. Which of the other features seem most likely to be useful in predicting `mpg01`? Scatterplots and boxplots may be useful tools to answer this question. Describe your findings.
 
 ```{r}
-GGally::ggpairs(Auto |> select(-c(name, mpg)), progress = FALSE) 
-
-pairs(Auto |> select(-name, mpg), col = Auto$mpg01)
+pairs(Auto, col = Auto$mpg01, diag.panel = panel.hist, upper.panel = panel.cor)
 ```
 
 I chose not to include `mpg` in the pair plot as it is directly related to `mpg01`. Judging from the plot, `acceleration`, `weight`, `horsepower` and `displacement`
@@ -54,7 +73,7 @@ test  <- Auto[setdiff(1:nrow(Auto), mask),]
 
 
 ## Part (d)
-> Perform LDA on the training data in order to predict `mpg01` using the variables that seemed most associated with `mpg01` in (b). What is the test error of the model obtained?
+Perform LDA on the training data in order to predict `mpg01` using the variables that seemed most associated with `mpg01` in (b). What is the test error of the model obtained?
 
 ```{r}
 lda.fit <- lda(mpg01 ~ displacement + horsepower + weight + acceleration, data = train)
@@ -76,7 +95,7 @@ confusionMatrix(lda.pred.2$class, test$mpg01)
 Adding an interaction effect between `weight` and `horsepower` increases the classifier accuracy.
 
 ## Part (e)
-> Perform QDA on the training data in order to predict `mpg01` using the variables that seemed most associated with `mpg01` in (b). What is the test error of the model obtained?
+Perform QDA on the training data in order to predict `mpg01` using the variables that seemed most associated with `mpg01` in (b). What is the test error of the model obtained?
 
 ```{r}
 qda.fit <- qda(mpg01 ~ acceleration + displacement + horsepower:weight, data = train)
@@ -105,7 +124,7 @@ confusionMatrix(glm.pred, test$mpg01)
 Logistic regression is not as good as the previous two methods we used.
 
 ## Part (g)
-> Perform naive Bayes on the training data in order to predict `mpg01` using the variables that seemed most associated with `mpg01` in (b). What is the test error of the model obtained?
+Perform naive Bayes on the training data in order to predict `mpg01` using the variables that seemed most associated with `mpg01` in (b). What is the test error of the model obtained?
 
 Naive Bayes is unable to accomodate interaction terms, so we will use the covariates without any such adjustments.
 
@@ -119,13 +138,13 @@ confusionMatrix(nb.pred, test$mpg01)
 Does not perform as well.
 
 ## Part (h)
-> Perform KNN on the training data, with several values of K, in order to predict `mpg01`. Use only the variables that seemed most associated with `mpg01` in (b). What test errors do you obtain? Which value of K seems to perform the best on this data set?
+Perform KNN on the training data, with several values of K, in order to predict `mpg01`. Use only the variables that seemed most associated with `mpg01` in (b). What test errors do you obtain? Which value of K seems to perform the best on this data set?
 
 ```{r}
-train.X <- train |> select(acceleration, displacement, horsepower, weight)
-test.X  <- test |> select(acceleration, displacement, horsepower, weight)
+train.X <- train[, 3:6]
+test.X <- test[, 3:6]
 
-train.Y <- train |> pull(mpg01)
+train.Y <- train[, 10]
 
 knn.pred  <- knn(train.X, test.X, train.Y, k = 3)
 ```
@@ -150,10 +169,14 @@ k.accuracy <- sapply(1:30, function(k) {
 })
 ```
 
+```{r}
+plot(k.accuracy, type = "l", xlab = "K", ylab = "Accuracy")
+```
+
 Find the optimal value of \(K\):
 
 ```{r}
 which.max(k.accuracy)
 ```
 
-It's 4.
+It's $K = 4$.

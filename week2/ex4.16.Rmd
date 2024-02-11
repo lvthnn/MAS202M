@@ -12,38 +12,201 @@ library(e1071)
 library(pROC)
 library(class)
 library(caret)
-library(tidyverse)
-library(GGally)
+
+panel.hist <- function(x, ...)
+{
+    usr <- par("usr")
+    par(usr = c(usr[1:2], 0, 1.5) )
+    h <- hist(x, plot = FALSE)
+    breaks <- h$breaks; nB <- length(breaks)
+    y <- h$counts; y <- y/max(y)
+    rect(breaks[-nB], 0, breaks[-1], y, ...)
+}
+
+panel.cor <- function(x, y, digits = 2, prefix = "", cex.cor, ...)
+{
+    par(usr = c(0, 1, 0, 1))
+    r <- cor(x, y)
+    txt <- format(c(r, 0.123456789), digits = digits)[1]
+    txt <- paste0(prefix, txt)
+    text(0.5, 0.5, txt, cex = 1.5)
+}
+
+pair_plot <- function(x) { pairs(x, diag.panel = panel.hist, upper.panel = panel.cor) }
 ```
 
 Using the Boston data set, fit classification models in order to predict whether a given census tract has a crime rate above or below the median. Explore logistic regression, LDA, naive Bayes, and KNN models using various subsets of the predictors. Describe your findings.
 
 *Hint: You will have to create the response variable yourself, using the variables that are contained in the Boston data set.*
 
-**Solution.** Start by importing the data set.
-
-```{r}
+```{r message = FALSE}
 library(ISLR2)
+
 data(Boston)
+attach(Boston)
 ```
 
-Summary look at the data set.
+Start by creating the response variable. We will convert it to a factor at a later time.
 
 ```{r}
-glimpse(Boston)
+Boston$crim01 <- ifelse(crim > median(crim), 1, 0)
 ```
-
-Pair plot:
 
 ```{r}
-ggpairs(Boston, progress = FALSE)
+pair_plot(Boston)
 ```
 
-Create the response classifier:
+Let's get our hands dirty! Figure out which predictors are most correlated with the response:
 
 ```{r}
-Boston <- Boston |> mutate(
-  crim01 = ifelse(crim > median(crim), 1, 0)
-)
+cor_mat <- cor(Boston)
+crim_vec <- cor_mat[2:13,14]
+
+crim_vec[order(abs(crim_vec), decreasing = TRUE)]
 ```
 
+They are ($\rho > 0.5$)
+
+-   `nox`: nitrogen oxides concentration (parts per 10 million).
+-   `rad`: index of accessibility to radial highways.
+-   `dis`: weighted mean of distances to five Boston employment centres.
+-   `age`: proportion of owner-occupied units built prior to 1940.
+-   `indus`: proportion of non-retail business acres per town.
+
+## Train / test split
+
+Split the data immediately into training / test splits for validation of model accuracy. I will use 75% of the data for training:
+
+```{r}
+set.seed(1)
+
+n <- nrow(Boston)
+sel <- sample(1:n, round(0.75 * n))
+
+train <- Boston[sel, ]
+train.X <- train[,2:13]
+train.Y <- train[,14]
+
+test <- Boston[setdiff(1:n, sel), ]
+test.X <- test[,2:13]
+test.Y <- test[,14]
+```
+
+## Logistic Regression
+
+```{r}
+glm.fit <- glm(crim01 ~ . - crim, family = "binomial", data = train)
+summary(glm.fit)
+```
+
+Find the optimal model using stepwise regression to get an idea of what subset of predictors is best:
+
+```{r}
+glm.fit <- stepAIC(glm.fit)
+summary(glm.fit)
+```
+
+The optimal model specified by bidirectional stepwise AIC regression is
+
+$$
+\begin{aligned}
+\log\left[ \frac { \widehat{P( \operatorname{crim01} = \operatorname{1} )} }{ 1 - \widehat{P( \operatorname{crim01} = \operatorname{1} )} } \right] &= -48.227 - 0.1181(\operatorname{zn}) - 0.0825(\operatorname{indus}) + 59.1808(\operatorname{nox})\ + \\
+&\quad 0.0252(\operatorname{age}) + 1.2136(\operatorname{dis}) + 0.652(\operatorname{rad}) - 0.0062(\operatorname{tax})\ + \\
+&\quad 0.2565(\operatorname{ptratio}) + 0.1211(\operatorname{lstat}) + 0.1714(\operatorname{medv})
+\end{aligned}
+$$How does it perform?
+
+```{r}
+glm.probs <- predict(glm.fit, test.X, type = "response")
+glm.preds <- ifelse(glm.probs >= 0.5, 1, 0)
+
+confusionMatrix(factor(glm.preds), factor(test.Y))
+```
+
+The accuracy is 0.8571 with a sensitivity of 0.8065 and a specificity of 0.9062. All in all a decent model.
+
+```{r}
+par(pty = "s")
+roc(test.Y, glm.probs, plot = TRUE, legacy.axes = TRUE)
+```
+
+I would like to do this for all the models but due to them not sharing the same structure I won't. We will keep working with the variables `zn`, `nox`, `dis`, `rad` and `tax` as our predictors since they were significant predictors in the logistic regression model, so adjust the `train` dataset to reflect this:
+
+```{r}
+cols_keep <- c("zn", "nox", "age", "dis", "rad", "tax", "ptratio", "lstat", "medv")
+train <- train[, c(cols_keep, "crim01")]
+
+train.X <- train.X[, cols_keep]
+test.X  <- test.X[, cols_keep]
+```
+
+## LDA
+
+The assumptions posed by LDA are a linear decision boundary, so hopes are not exactly high here.
+
+```{r}
+lda.fit <- lda(crim01 ~ zn + nox + dis + rad + tax, data = train)
+lda.fit
+```
+
+Let's measure accuracy:
+
+```{r}
+lda.pred <- predict(lda.fit, test.X)$class
+confusionMatrix(factor(lda.pred), factor(test.Y))
+```
+
+The LDA fit performs (better?) than logistic regression with an accuracy of 0.8571, a sensitivity of 0.9516 (very good) and a specificity of 0.7656 (not so good). Saying which is better depends on the context — which is better, sensitivity or specificity?
+
+Yarrrr. (Pirate noise)
+
+## Naive Bayes
+
+```{r}
+nb.fit <- naiveBayes(crim01 ~ zn + nox + dis + rad + tax, data = train)
+nb.fit
+```
+
+Measure accuracy:
+
+```{r}
+nb.pred <- predict(nb.fit, test.X)
+confusionMatrix(factor(nb.pred), factor(test.Y))
+```
+
+Does not stand out too well compared to the other two, although it seems to be more balanced, i.e. has similar specificity and sensitivity, both of which are good. Outperforms the other two in that sense.
+
+## KNN (yee-haw)
+
+I'm not sure whether $n \gg p$ in this context but I have high hopes for kNN. 🤠 Let's optimise $k$ immediately.
+
+```{r}
+ks <- sapply(1:100, function(k) {
+  accs <- c()
+  for (i in 1:100) {
+    knn.pred <- knn(train.X, test.X, train.Y, k = k)
+    cfm <- table(knn.pred, test.Y)
+    acc <- (cfm[1,1] + cfm[2,2]) / (sum(cfm))
+    accs <- append(accs, acc)
+  }
+  return(mean(accs))
+})
+
+plot(ks, type = "b", xlab = "k", ylab = "Accuracy")
+```
+
+Seems like $k = 1$ is optimal.
+
+```{r}
+k_opt <- which.max(ks)
+k_opt
+```
+
+Let's grab some more statistics.
+
+```{r}
+knn.pred <- knn(train.X, test.X, train.Y, k = k_opt)
+confusionMatrix(factor(knn.pred), factor(test.Y))
+```
+
+All in all kNN offers the highest accuracy, although LDA offers a bit more specificity which may be more valuable depending on the context.
