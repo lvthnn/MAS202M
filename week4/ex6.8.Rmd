@@ -5,159 +5,272 @@ date: "2024-01-21"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, fig.align = "center")
-```
-
-In Chapter 4, we used logistic regression to predict the probability of `default` using `income` and `balance` on the `Default` data set. We will now estimate the test error of this logistic regression model using the validation set approach. Do not forget to set a random seed before beginning your analysis.
-
-```{r message = FALSE}
-library(ISLR2)
-library(caret)
-library(tidyverse)
-
-data(Default)
-```
+In this exercise, we will generate simulated data, and will then use this data to perform best subset selection.
 
 ## Part (a)
 
-Fit a logistic regression model that uses income and balance to predict default.
+Use the `rnorm` function to generate a predictor $X$ of length $n = 100$, as well as a noise vector $\epsilon$ of length $n = 100$.
 
 ```{r}
-glm.fit <- glm(default ~ income + balance, data = Default, family = "binomial")
+set.seed(69)
+n <- 100
+x <- rnorm(n)
+e <- rnorm(n)
 ```
 
 ## Part (b)
 
-Using the validation set approach, estimate the test error of this model. In order to do this, you must perform the following steps:
+Generate a response vector $Y$ of length $n = 100$ according to the model
 
-1.  Split the sample into a training set and a validation set.
+$$
+Y = \beta_0 + \beta_1 X + \beta_2 X^2 + \beta_3 X^3 + \epsilon,
+$$
 
-2.  Fit a multiple logistic regression model using only the training observations.
-
-3.  Obtain a prediction of default status for each individual in the validation set by computing the posterior probability of default for that individual, and classifying the individual to the `default` category if the posterior probability is greater than 0.5.
-
-4.  Compute the validation set error, which is the fraction of the observations in the validation set that are misclassified
-
-Perform the training-test split. I will commit 75% of the data set to the training set and use the rest for measuring prediction error.
+where $\beta_1, \beta_2, \beta_3$ and $\beta_3$ are constants of your choice.
 
 ```{r}
-set.seed(42)
+y <- 2 + 3 * x + 4 * x^2 + 5 * x^3 + e
+ord <- order(x)
 
-n   <- nrow(Default)
-sel <- sample(n, round(0.75 * n))
-
-train <- Default[sel,]
-test  <- Default[setdiff(1:n, sel),]
+plot(x, y)
+lines(x[ord], y[ord] - e[ord], type = "l", lwd = 2.5, xlab = "x", ylab = "y")
 ```
-
-Fit the model on the training set:
-
-```{r}
-glm.fit <- glm(default ~ income + balance, data = train, family = "binomial")
-```
-
-Now create predictions on the test set and measure prediction error on the test data set:
-
-```{r}
-test.probs <- predict(glm.fit, test, type = "response")
-test.pred  <- factor(ifelse(test.probs > 0.5, "Yes", "No"))
-
-confusionMatrix(test.pred, test$default, positive = "Yes")
-```
-
-The validation set error (test error) is $1 - 0.9748 = 0.0252$ or approximately $2.52\%$.
 
 ## Part (c)
 
-Repeat the process in (b) three times, using three different splits of the observations into a training set and a validation set. Comment on the results obtained.
-
-We will perform a $k$-fold cross validation with $k = 3$. Start by creating the folds:
+Use the `regsubsets()` function to perform best subset selection in order to choose the best model containing the predictors $X, X^2, \ldots, X^{10}$. What is $C_p$, $\mathrm{BIC}$ and adjusted $R^2$? Show some plots to provide evidence for your answer, and report the coefficients of the best model obtained. Note you will need to use the `data.frame()` function to create a single data set containing both $X$ and $Y$.
 
 ```{r}
-k <- 3
-n <- nrow(train)
-folds <- sample(k, n, replace = TRUE)
-prop.table(table(folds)) # approximately equal sizes
+library(leaps)
+df <- data.frame(x, y)
+
+regfit.full <- regsubsets(y ~ x + I(x^2) + I(x^3) + I(x^4) + I(x^5)
+                          + I(x^6) + I(x^7) + I(x^8) + I(x^9) + I(x^10), 
+                          data = df, nvmax = 10)
+reg.summary <- summary(regfit.full)
+
+par(mfrow = c(1, 3))
+plot(1:10, reg.summary$bic, xlab = "Subset no.", ylab = "BIC", type = "b")
+plot(1:10, reg.summary$adjr2, xlab = "Subset no.", ylab = expression('adj. R'^2), type = "b")
+plot(1:10, reg.summary$cp, xlab = "Subset no.", ylab = expression(C[p]), type = "b")
 ```
 
-Now for the fitting procedure:
+Prediction curves for each of the models.
 
 ```{r}
-errs <- sapply(1:k, function(i) {
-  train_i <- train[!(folds == i),]
-  test_i  <- test[folds == i,]
-  glm.fit <- glm(default ~ income + balance, data = train_i, family = "binomial")
+px <- lapply(1:10, function(d) x^d)
+px <- do.call(cbind, px)
+px <- data.frame(px)
+colnames(px) <- c("x", paste0("x", 2:10))
+
+vars_mdl <- reg.summary$which[,-1]
+vars_mdl <- unname(vars_mdl)
+
+plot(x, y, col = 1, xlab = "X", ylab = "Y")
+for (m in 1:10) {
+  vars_m <- vars_mdl[m,]
+  data_m <- data.frame(cbind(px[,vars_m], y))
   
-  # get measure of accuracy
-  glm.prob <- predict(glm.fit, test_i[,-1], type = "response")
-  glm.pred <- ifelse(glm.prob > 0.5, "Yes", "No")
+  model.fit  <- lm(y ~ ., data = data_m)
+  model.pred <- predict(model.fit, data_m)
   
-  cnf.mat <- table(glm.pred, test_i$default)
-  err_i <- (cnf.mat[1, 2] + cnf.mat[2, 1]) / sum(cnf.mat)
-})
+  lines(x[ord], model.pred[ord], lty = m, col = m, lwd = 1.25)
+}
+
+legend("topleft", inset = c(0.05, 0.05), legend = paste("Subset", 1:10), cex = 0.55, bty = "n",
+       col = 1:10, lty = 1:10, lwd = 1.25)
 ```
 
+Let's take a look at which model has the best measure of performance. From the visualisations we would expect it to be no. 3:
+
 ```{r}
-mean(errs)
-sd(errs)
+which.max(reg.summary$adjr2); which.min(reg.summary$cp); which.min(reg.summary$bic)
 ```
 
-The mean error from the $k$-fold CV with $k = 3$ is 0.02569011 and a standard deviation of 0.004443395. We could try seeing how this all changes with different values of $k$.
+The third model is the most dominant, and clearly there is little benefit in adding more complex terms to the model at the cost of increased variability. The fit involving the following data
 
 ```{r}
-seq_k <- round(seq(2, 7500, length = 100))
-errs_ks <- lapply(seq_k, function(k) {
-  folds <- sample(1:k, n, replace = (k < n))
-  errs <- sapply(1:k, function(i) {
-    train_i <- train[!(folds == i),]
-    test_i  <- test[folds == i,]
-    glm.fit <- glm(default ~ income + balance, data = train_i, family = "binomial")
-    
-    # get measure of accuracy
-    glm.prob <- predict(glm.fit, test_i[,-1], type = "response")
-    glm.pred <- factor(ifelse(glm.prob > 0.5, "Yes", "No"))
-    
-    cnf.mat <- table(glm.pred, test_i$default)
-    err_i <- (cnf.mat[1, 2] + cnf.mat[2, 1]) / sum(cnf.mat)
-  })
-})
+x.opt <- px[,vars_mdl[3,]]
+head(x.opt)
+```
+
+Our original data! Make the fit:
+
+```{r}
+data.opt <- data.frame(x.opt, y)
+opt.fit <- lm(y ~ ., data = data.opt)
+summary(opt.fit)
+```
+
+Estimates are quite close to our original fit.
+
+```{r}
+pred.opt <- predict(opt.fit, data.opt)
+
+plot(x, y)
+lines(x[ord], y[ord] - e[ord], type = "l", lwd = 2.5, xlab = "X", ylab = "Y", col = 3)
+lines(x[ord], pred.opt[ord], type = "l", lwd = 2.5, col = 4)
 ```
 
 ## Part (d)
 
-Now consider a logistic regression model that predicts the probability of default using `income`, `balance`, and a dummy variable for `student`. Estimate the test error for this model using the validation set approach. Comment on whether or not including a dummy variable for `student` leads to a reduction in the test error rate.
+Repeat (c), using forward stepwise selection and also using backwards stepwise selection. How does your answer compare to the results in (c)?
 
 ```{r}
-tse2 <- sapply(etas, function(eta) {
-  accuracy <- c()
+library(MASS)
+model.full <- lm(y ~ ., data = px)
+model.null <- lm(y ~ 1, data = px)
+
+model.back <- stepAIC(model.full, direction = "backward", trace = FALSE)
+model.forw <- stepAIC(model.null, direction = "forward", scope = list(lower = model.null, upper = model.full), trace = FALSE)
+
+summary(model.back)
+summary(model.forw)
+```
+
+Same models again.
+
+## Part (e)
+
+Now fit a lasso model to the simulate data, again using $X, X^2, \ldots, X^{10}$ as predictors. Use cross-validation to select the optimal value of $\lambda$. Report the resulting coefficient estimates, and discuss the results obtained.
+
+Let's take a look at how different values of $\lambda$ affect the coefficients obtained through lasso.
+
+```{r}
+library(glmnet)
+
+lasso.mod <- glmnet(px, y, alpha = 1)
+plot(lasso.mod)
+```
+
+Picking $\lambda$ small enough assigns some of the coefficients to zero. Which value of $\lambda$ is best?
+
+```{r}
+lasso.res <- cv.glmnet(as.matrix(px), y, alpha = 1)
+lambda.opt <- lasso.res$lambda.min
+lambda.opt
+```
+
+The code indicates that $\lambda = 0.07493406$ is optimal. We will use this to fit the lasso model.
+
+```{r}
+model.lasso <- predict(lasso.mod, s = lambda.opt, type = "coefficient")
+model.lasso
+```
+
+The model fit by lasso is very similar to the models attained using other methods – however the quartic term $X^4$ is included in the model with a very small coefficient.
+
+Plot the optimal model from the subset selection and the lasso model:
+
+```{r}
+par(mfrow = c(1,2))
+plot(x, y, xlab = "X", ylab = "Y")
+lines(x[ord], pred.opt[ord], type = "l", lwd = 2.5, col = 2)
+
+plot(x, y, xlab = "X", ylab = "Y")
+lines(x[ord], lasso.pred[ord], type = "l", lwd = 2.5, col = 4)
+```
+
+The fits are very similar.
+
+## Part (f)
+
+Now generate a response vector $Y$ according to the model
+
+$$
+Y = \beta_0 + \beta_7 X^7 + \epsilon,
+$$
+
+and perform best subset selection and the lasso. Discuss the results obtained.
+
+```{r}
+y <- 2 + 6 * x^7 + e
+plot(x, y)
+```
+
+Best subset selection:
+
+```{r}
+df <- data.frame(x, y)
+
+regfit.full <- regsubsets(y ~ x + I(x^2) + I(x^3) + I(x^4) + I(x^5)
+                          + I(x^6) + I(x^7) + I(x^8) + I(x^9) + I(x^10), 
+                          data = df, nvmax = 10)
+reg.summary <- summary(regfit.full)
+
+par(mfrow = c(1, 3))
+plot(1:10, reg.summary$bic, xlab = "Subset no.", ylab = "BIC", type = "b")
+plot(1:10, reg.summary$adjr2, xlab = "Subset no.", ylab = expression('adj. R'^2), type = "b")
+plot(1:10, reg.summary$cp, xlab = "Subset no.", ylab = expression(C[p]), type = "b")
+```
+
+```{r}
+px <- lapply(1:10, function(d) x^d)
+px <- do.call(cbind, px)
+px <- data.frame(px)
+colnames(px) <- c("x", paste0("x", 2:10))
+
+vars_mdl <- reg.summary$which[,-1]
+vars_mdl <- unname(vars_mdl)
+
+plot(x, y, col = 1, xlab = "X", ylab = "Y")
+for (m in 1:10) {
+  vars_m <- vars_mdl[m,]
+  data_m <- data.frame(cbind(px[,vars_m], y))
   
-  for (i in 1:10) {
-    sel <- sample(1:n, round(eta * n))
-    
-    train <- Default[sel,]
-    test  <- Default[setdiff(1:n, sel),]
-    
-    mdl.fit    <- glm(default ~ balance + income + student, data = train, family = "binomial")
-    test.probs <- predict(mdl.fit, test, type = "response")
-    test.pred  <- factor(ifelse(test.probs > 0.5, "Yes", "No"), levels = c("No", "Yes"))
-    
-    accuracy <- append(accuracy, mean(test.pred == test$default))
-  }
-    
-  return(mean(accuracy))
-})
-```
+  model.fit  <- lm(y ~ ., data = data_m)
+  model.pred <- predict(model.fit, data_m)
+  
+  lines(x[ord], model.pred[ord], lty = m, col = m, lwd = 1.25)
+}
 
-Compare the two
+legend("topleft", inset = c(0.05, 0.05), legend = paste("Subset", 1:10), cex = 0.55, bty = "n",
+       col = 1:10, lty = 1:10, lwd = 1.25)
+```
 
 ```{r}
-plot(etas, 1 - tse1, type = "l", lwd = 1.15, col = "red",
-     xlab = expression(eta), ylab = "Test set error", ylim = c(0, max(1 - tse1, 1 - tse2)))
-lines(etas, 1 - tse2, lty = 1, lwd = 1.15, col = "blue")
-
-legend("bottomleft", inset = c(0.05, 0.05), legend = c("No dummy var.", "With dummy var."),
-       lwd = 1.5, lty = 1, col = c("red", "blue"))
+which.max(reg.summary$adjr2); which.min(reg.summary$cp); which.min(reg.summary$bic)
 ```
 
-Similar performance at the cost of an added variable. Adding the dummy variable comes at a cost of increased bias while not reducing variance -- therefore we should not include it.
+```{r}
+x.opt <- px[,vars_mdl[1,]]
+head(x.opt)
+```
+
+```{r}
+data.opt <- data.frame(x.opt, y)
+opt.fit <- lm(y ~ ., data = data.opt)
+summary(opt.fit)
+```
+
+Hmm. Looks close to our original fit! Red is true model and blue is model recovered by best subset.
+
+```{r}
+pred.opt <- predict(opt.fit, data.opt)
+
+par(mfrow = c(1, 2))
+plot(x, y, xlab = "X", ylab = "Y")
+lines(x[ord], y[ord] - e[ord], type = "l", lwd = 2.5, xlab = "X", ylab = "Y", col = 2)
+plot(x, y, xlab = "X", ylab = "Y")
+lines(x[ord], pred.opt[ord], type = "l", lwd = 2.5, col = 4)
+```
+
+Lasso:
+
+```{r}
+lasso.init <- glmnet(px, y, alpha = 1)
+plot(lasso.init)
+```
+
+```{r}
+lasso.res <- cv.glmnet(as.matrix(px), y, alpha = 1)
+lambda.opt <- lasso.res$lambda.min
+lambda.opt
+```
+
+```{r}
+lambda.mod <- predict(lasso.init, s = lambda.opt, type = "coefficients")
+lambda.mod
+```
+
+Lasso recovers the model almost exactly.

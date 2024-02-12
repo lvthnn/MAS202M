@@ -1,0 +1,135 @@
+---
+title: "Exercise 6.9"
+author: "Kári Hlynsson"
+date: "2024-02-12"
+output: html_document
+---
+
+In this exercise, we will predict the number of applications received using the other variables in the `College` data set.
+
+## Part (a)
+Split the data into a training set and a test set.
+
+```{r}
+library(ISLR2)
+data(College)
+
+set.seed(42)
+n <- nrow(College)
+s <- sample(c(TRUE, FALSE), n, replace = TRUE, prob = c(0.75, 0.25))
+
+# for lm
+train <- College[s,]
+test  <- College[!s,]
+
+# for glmnet
+model.mat <- model.matrix(Apps ~ ., data = College)
+train.X   <- model.mat[s,  -c(1, 3)]
+train.Y   <- model.mat[s,         3]
+test.X    <- model.mat[!s, -c(1, 3)]
+test.Y    <- model.mat[!s,        3]
+```
+
+
+## Part (b)
+Fit a linear model using least squares on the training set, and report the test error obtained.
+
+```{r}
+lm.fit  <- lm(Apps ~ ., data = train)
+lm.pred <- predict(lm.fit, test)
+
+lm.err  <- mean((test$Apps - lm.pred)^2)
+lm.err # MSE
+```
+
+## Part (c)
+Fit a ridge regression model on the training set, with $\lambda$ chosen by cross-validation. Report the test error obtained.
+
+```{r}
+library(glmnet)
+
+grid      <- 10^seq(10, -2, length = 100)
+ridge.mod <- glmnet(train.X, train.Y, alpha = 0, lambda = grid)
+plot(ridge.mod)
+```
+
+Weird. Find optimal $\lambda$ for ridge regression:
+
+```{r}
+cv.out     <- cv.glmnet(train.X, train.Y, alpha = 0)
+lambda.opt <- cv.out$lambda.min
+```
+
+Now find the model coefficients:
+
+```{r}
+ridge.coefs <-predict(ridge.mod, s = lambda.opt, type = "coefficients")
+barplot(mod.coefs[,1])
+```
+
+Measure model performance on test data set:
+
+```{r}
+ridge.pred <- predict(ridge.mod, s = lambda.opt, newx = test.X)
+mean((test.Y - ridge.pred)^2)
+```
+
+Ridge model outperforms least squares.
+
+## Part (d)
+Fit a lasso model on the training set, with $\lambda$ chosen by cross-validation. Report the test error obtained, along with the number of non-zero coefficient estimates.
+
+```{r warning=FALSE}
+lasso.mod <- glmnet(train.X, train.Y, alpha = 1, lambda = grid)
+plot(lasso.mod)
+```
+
+Find optimal value for $\lambda$:
+
+```{r}
+cv.out     <- cv.glmnet(train.X, train.Y, alpha = 1)
+lambda.opt <- cv.out$lambda.min
+lambda.opt
+```
+
+Find coefficients:
+
+```{r}
+predict(lasso.mod, s = lambda.opt, type = "coefficients")
+```
+
+Measure model error on test set.
+
+```{r}
+lasso.pred <- predict(lasso.mod, s = lambda.opt, newx = test.X)
+mean((lasso.pred - test.Y)^2)
+```
+
+Lasso outperforms OLS again.
+
+## Part (e)
+Fit a PCR model on the training set, with $M$ chosen by cross-validation. Report the test error obtained, along with the value of $M$
+selected by cross-validation.
+
+```{r}
+library(pls)
+
+pcr.fit <- pcr(Apps ~ ., data = train, scale = TRUE, validation = "CV")
+summary(pcr.fit)
+```
+
+Validation plot.
+
+```{r}
+validationplot(pcr.fit, val.type = "MSEP")
+```
+
+We get lowest training error on 17 components, i.e. the whole data set.
+
+## Part (f)
+Fit a PLS model on the training set, with $M$ chosen by cross-validation. Report the test error obtained, along with the value of $M$
+selected by cross-validation.
+
+## Part (g)
+Comment on the results obtained. How accurately can we predict the number of college applications received? Is there much difference
+among the test errors resulting from these five approaches?
