@@ -3,24 +3,291 @@ title: "Exercise 3.11"
 author: "Kári Hlynsson"
 date: "2024-02-13"
 output: html_document
+editor_options: 
+  markdown: 
+    wrap: 100
 ---
 
 We will now try to predict per capita crime rate in the `Boston` data set.
 
 ## Part (a)
-Try out some of the regression methods explored in this chapter, such as best subset selection, 
-the lasso, ridge regression, and PCR. Present and discuss results for the approaches that you consider.
+
+Try out some of the regression methods explored in this chapter, such as best subset selection, the
+lasso, ridge regression, and PCR. Present and discuss results for the approaches that you consider.
 
 ```{r}
+library(MASS)
 library(ISLR2)
 data(Boston)
+
+set.seed(1)
+
+n <- nrow(Boston)
+s <- sample(n, round(0.75 * n))
+t <- setdiff(1:n, s)
+
+train <- Boston[s,]
+test  <- Boston[t,]
+
+train.X <- model.matrix(crim ~ ., data = train)[,-1]
+train.Y <- train[,1]
+
+test.X <- model.matrix(crim ~ ., data = test)[,-1]
+test.Y <- test[,1]
 ```
 
+### Best subset selection
 
-## Part (b)
-Propose a model (or set of models) that seem to perform well on this data set, and justify your answer. 
-Make sure that you are evaluating model performance using validation set error, cross-validation, or some 
-other reasonable alternative, as opposed to using training error.
+```{r}
+library(leaps)
+
+regfit.full <- regsubsets(crim ~ ., data = train, nvmax = 13)
+reg.summary <- summary(regfit.full)
+reg.summary
+```
+
+```{r}
+par(mfrow = c(2, 3))
+plot(1:12, reg.summary$bic, xlab = "Model size", ylab = "BIC", type = "b")
+plot(1:12, reg.summary$adjr2, xlab = "Model size", ylab = expression('adj. R'^2), type = "b")
+plot(1:12, reg.summary$cp, xlab = "Model size", ylab = expression(C[p]), type = "b")
+plot(regfit.full, scale = "bic")
+plot(regfit.full, scale = "adjr2")
+plot(regfit.full, scale = "Cp")
+```
+
+```{r}
+which.min(reg.summary$bic)
+which.max(reg.summary$adjr2)
+which.min(reg.summary$cp)
+```
+
+I will take the subset with index 8 since it does a good job of minimising the adjusted $R^2$ and
+$C_p$ while also keeping the \$\$\\mathrm{BIC}\$ relatively small. We could also look at how the
+different subsets perform in terms of training and test set MSE.
+
+```{r}
+bss.coefs <- coef(regfit.full, id = 8)
+
+train.mses <- sapply(1:12, function(i) {
+  beta <- coef(regfit.full, id = i)
+  vars  <- which(colnames(Boston) %in% names(beta))
+  
+  # predict Y
+  X.pred    <- as.matrix(cbind(1, Boston[s,vars]))
+  Y.pred    <- X.pred %*% beta
+  
+  # MSE
+  mean((train$crim - Y.pred)^2)
+})
+
+test.mses <- sapply(1:12, function(i) {
+  beta <- coef(regfit.full, id = i)
+  vars  <- which(colnames(Boston) %in% names(beta))
+  
+  # predict Y
+  X.pred    <- as.matrix(cbind(1, Boston[t,vars]))
+  Y.pred    <- X.pred %*% beta
+  
+  # MSE
+  mean((test$crim - Y.pred)^2)
+})
+
+par(mfrow = c(1, 2))
+plot(train.mses, type = "b", xlab = "Model size", ylab = "Training set MSE")
+plot(test.mses, type = "b", xlab = "Model size", ylab = "Test set MSE")
+```
+
+Which model performs best according to the test and training MSE?
+
+```{r}
+which.min(train.mses)
+which.min(test.mses)
+```
+
+Empirical data suggests that the model of size 11 is most suitable. However I would stick with the
+model of size 8 since it has lower adjusted $R^2$, $C_p$ and higher $\mathrm{BIC}$. Then the test
+set MSE is
+
+```{r}
+bss.mse <- test.mses[8]
+bss.mse
+```
+
+### Stepwise regression
+
+We'll do bidirectional stepwise regression, starting from the full model:
+
+```{r}
+lm.full <- lm(crim ~ ., data = train)
+lm.aic  <- stepAIC(lm.full, direction = "both", trace = FALSE)
+summary(lm.aic)
+```
+
+The returned model uses 8 predictors, similar to the model we chose in best subset selection.
+Measure performance:
+
+```{r}
+lm.aic.pred <- predict(lm.aic, test)
+lm.aic.mse  <- mean((lm.aic.pred - test.Y)^2)
+lm.aic.mse
+```
+
+Performs similarly to rest.
+
+### Ridge regression
+
+```{r message = FALSE}
+library(glmnet)
+
+grid <- 10^seq(-2, 10, length = 100)
+ridge.fit    <- glmnet(train.X, train.Y, lambda = grid, alpha = 0, thresh = 1e-12)
+cv.out.ridge <- cv.glmnet(train.X, train.Y, lambda = grid, alpha = 0, thresh = 1e-12)
+plot(cv.out.ridge)
+```
+
+What is the optimal $\lambda$ selected by `cv.glmnet`?
+
+```{r}
+ridge.lambda <- cv.out.ridge$lambda.min
+ridge.lambda
+```
+
+It is quite small, so it favours an OLS-esque model. Let's take a look at the model produced with
+this value of $\lambda$.
+
+```{r}
+ridge.coefs <- predict(ridge.fit, s = ridge.lambda, type = "coefficients")
+ridge.coefs
+```
+
+It is very similar to a OLS fit:
+
+```{r}
+summary(lm(crim ~ ., data = train))
+```
+
+Let's get a sense for model performance:
+
+```{r}
+ridge.pred <- predict(ridge.fit, s = ridge.lambda, newx = test.X)
+ridge.mse  <- mean((ridge.pred - test.Y)^2)
+ridge.mse
+```
+
+The performance is similar to that of best subset selection.
+
+### Lasso regression
+
+```{r warning = FALSE}
+lasso.fit <- glmnet(train.X, train.Y, alpha = 1, lambda = grid, thresh = 1e-12)
+plot(lasso.fit)
+```
+
+Optimise $\lambda$:
+
+```{r}
+cv.out.lambda <- cv.glmnet(train.X, train.Y, alpha = 1, lambda = grid, thresh = 1e-12)
+lasso.lambda  <- cv.out.lambda$lambda.min
+lasso.lambda
+```
+
+Again the chosen value of $\lambda$ is close to zero, so the shrinkage is very little.
+
+```{r}
+lasso.coefs <- predict(lasso.fit, s = lasso.lambda, type = "coefficients")
+lasso.coefs
+```
+
+Again very similar to the OLS results.
+
+```{r}
+lasso.pred <- predict(lasso.fit, s = lasso.lambda, newx = test.X)
+lasso.mse  <- mean((lasso.pred - test.Y)^2)
+lasso.mse
+```
+
+### PCR
+
+```{r}
+library(pls)
+
+pcr.fit <- pcr(crim ~ ., data = train, scale = TRUE, validation = "CV")
+summary(pcr.fit)
+```
+
+PCR wants to keep all 12 components in the model.
+
+```{r}
+validationplot(pcr.fit, val.type = "MSEP")
+```
+
+```{r}
+pcr.pred <- predict(pcr.fit, test)
+pcr.mse  <- mean((pcr.pred - test.Y)^2)
+pcr.mse
+```
+
+Performs only slightly worse than other alternatives in this instance.
+
+### PLS
+
+```{r}
+pls.fit <- plsr(crim ~ ., data = train, scale = TRUE, validation = "CV")
+summary(pls.fit)
+```
+
+From the output we see that $M = 11$ has minimal validation error, so we'll use that:
+
+```{r}
+validationplot(pls.fit, val.type = "MSEP")
+```
+
+```{r}
+pls.pred <- predict(pls.fit, test)
+pls.mse  <- mean((pls.pred - test.Y)^2)
+pls.mse
+```
+
+## Part(b)
+
+Propose a model (or set of models) that seem to perform well on this data set, and justify your
+answer. Make sure that you are evaluating model performance using validation set error,
+cross-validation, or some other reasonable alternative, as opposed to using training error.
+
+```{r}
+names <- c("Best subset", "Step AIC", "Ridge", "Lasso", "PCR", "PLS")
+msev  <- c(bss.mse, lm.aic.mse, ridge.mse, lasso.mse, pcr.mse, pls.mse)
+mses  <- setNames(msev, names)
+
+barplot(mses, cex.names = 0.8)
+```
+
+Compute the $R^2$ to compare all methods:
+
+```{r}
+mtss <- mean((test.Y - mean(test.Y))^2)
+
+rsqs <- sapply(mses, function(mse) 1 - mse / mtss)
+barplot(rsqs, cex.names = 0.85)
+```
+
+Which is optimal? It's hard to tell from the visuals. :-)
+
+```{r}
+which.max(rsqs)
+```
+
+Best subset is performing best on the data in this instance.
 
 ## Part
+
 Does your chosen model involve all of the features in the data set? Why or why not?
+
+```{r}
+bss.coefs
+```
+
+The model includes 8 predictors. First of all we chose the "optimal" model from the best subset
+selection using a mixture of metrics, including BIC, adjusted $R^2$ and $C_p$ each of which have
+their advantages and disadvantages. The chosen subset was picked to optimise all of these.

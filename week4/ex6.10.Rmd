@@ -37,7 +37,7 @@ Y <- -5 + X %*% beta
 data <- data.frame(X, Y)
 ```
 
-Majestic ahh pair plot:
+Pair plot:
 
 ```{r}
 par(mfrow = c(4, 5))

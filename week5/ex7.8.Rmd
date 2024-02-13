@@ -1,0 +1,6 @@
+---
+title: "Exercise 7.8"
+author: "Kári Hlynsson"
+date: "2024-02-13"
+output: html_document
+---
