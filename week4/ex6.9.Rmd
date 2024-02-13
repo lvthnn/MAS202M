@@ -14,32 +14,37 @@ Split the data into a training set and a test set.
 library(ISLR2)
 data(College)
 
-set.seed(42)
+set.seed(1)
+
+rownames(College) <- NULL # clutter
+
 n <- nrow(College)
-s <- sample(c(TRUE, FALSE), n, replace = TRUE, prob = c(0.75, 0.25))
+s <- sample(c(TRUE, FALSE), n, replace = T, prob = c(0.75, 0.25))
 
 # for lm
-train <- College[s,]
-test  <- College[!s,]
+train <- College[s, ]
+test  <- College[!s, ]
 
 # for glmnet
-model.mat <- model.matrix(Apps ~ ., data = College)
-train.X   <- model.mat[s,  -c(1, 3)]
-train.Y   <- model.mat[s,         3]
-test.X    <- model.mat[!s, -c(1, 3)]
-test.Y    <- model.mat[!s,        3]
-```
+train.X <- model.matrix(Apps ~ ., train)[,-1]
+train.Y <- train$Apps
 
+test.X <- model.matrix(Apps ~ ., test)[,-1]
+test.Y <- test$Apps
+```
 
 ## Part (b)
 Fit a linear model using least squares on the training set, and report the test error obtained.
 
 ```{r}
-lm.fit  <- lm(Apps ~ ., data = train)
-lm.pred <- predict(lm.fit, test)
+lm.fit <- lm(Apps ~ ., data = train)
+summary(lm.fit)
+```
+Test error:
 
-lm.err  <- mean((test$Apps - lm.pred)^2)
-lm.err # MSE
+```{r}
+lm.pred <- predict(lm.fit, test)
+mean((test.Y - lm.pred)^2)
 ```
 
 ## Part (c)
@@ -48,64 +53,75 @@ Fit a ridge regression model on the training set, with $\lambda$ chosen by cross
 ```{r}
 library(glmnet)
 
-grid      <- 10^seq(10, -2, length = 100)
-ridge.mod <- glmnet(train.X, train.Y, alpha = 0, lambda = grid)
-plot(ridge.mod)
+# grid for the lambdas (glmnet)
+grid <- 10^seq(10, -2, length = 100)
+
+ridge.fit <- glmnet(train.X, train.Y, alpha = 0, lambda = grid, thresh = 1e-12)
+plot(ridge.fit)
 ```
 
-Weird. Find optimal $\lambda$ for ridge regression:
+Cross validate to select best value of $\lambda$:
 
 ```{r}
-cv.out     <- cv.glmnet(train.X, train.Y, alpha = 0)
-lambda.opt <- cv.out$lambda.min
+cv.out.ridge <- cv.glmnet(train.X, train.Y, alpha = 0, lambda = grid, thresh = 1e-12)
+plot(cv.out.ridge)
 ```
 
-Now find the model coefficients:
+Best value is
 
 ```{r}
-ridge.coefs <-predict(ridge.mod, s = lambda.opt, type = "coefficients")
-barplot(mod.coefs[,1])
+lambda.ridge <- cv.out.ridge$lambda.min
+lambda.ridge
 ```
 
-Measure model performance on test data set:
-
 ```{r}
-ridge.pred <- predict(ridge.mod, s = lambda.opt, newx = test.X)
+ridge.pred <- predict(ridge.fit, s = lambda.ridge, newx = test.X)
 mean((test.Y - ridge.pred)^2)
 ```
 
-Ridge model outperforms least squares.
+Similar to OLS. Coefs:
+
+```{r}
+predict(ridge.fit, s = lambda.ridge, type = "coefficient")
+```
 
 ## Part (d)
-Fit a lasso model on the training set, with $\lambda$ chosen by cross-validation. Report the test error obtained, along with the number of non-zero coefficient estimates.
-
-```{r warning=FALSE}
-lasso.mod <- glmnet(train.X, train.Y, alpha = 1, lambda = grid)
-plot(lasso.mod)
-```
-
-Find optimal value for $\lambda$:
+Fit a ridge lasso model on the training set, with $\lambda$ chosen by cross-validation. Report the test error obtained, along with
+the number of non-zero coefficient estimates.
 
 ```{r}
-cv.out     <- cv.glmnet(train.X, train.Y, alpha = 1)
-lambda.opt <- cv.out$lambda.min
-lambda.opt
+lasso.fit <- glmnet(train.X, train.Y, alpha = 1, lambda = grid, thresh = 1e-12)
+plot(lasso.fit)
 ```
 
-Find coefficients:
+Find best $\lambda$:
 
 ```{r}
-predict(lasso.mod, s = lambda.opt, type = "coefficients")
+cv.out.lasso <- cv.glmnet(train.X, train.Y, alpha = 1, lambda = grid, thresh = 1e-12)
+plot(cv.out.lasso)
 ```
 
-Measure model error on test set.
+Optimal $\lambda$:
 
 ```{r}
-lasso.pred <- predict(lasso.mod, s = lambda.opt, newx = test.X)
-mean((lasso.pred - test.Y)^2)
+lambda.lasso <- cv.out.lasso$lambda.min
+lambda.lasso
 ```
 
-Lasso outperforms OLS again.
+Fit the model:
+
+```{r}
+lasso.pred <- predict(lasso.fit, s = lambda.lasso, test.X)
+mean((test.Y - lasso.pred)^2)
+```
+
+Coefficients:
+
+```{r}
+predict(lasso.fit, s = lambda.lasso, type = "coefficient")
+```
+
+15 non-zero components. Similar performance to other models.
 
 ## Part (e)
 Fit a PCR model on the training set, with $M$ chosen by cross-validation. Report the test error obtained, along with the value of $M$
@@ -118,18 +134,67 @@ pcr.fit <- pcr(Apps ~ ., data = train, scale = TRUE, validation = "CV")
 summary(pcr.fit)
 ```
 
-Validation plot.
+Cool plot:
 
 ```{r}
 validationplot(pcr.fit, val.type = "MSEP")
 ```
 
-We get lowest training error on 17 components, i.e. the whole data set.
+
+The CV error is lowest for 17 components, which is essentially least squares. Let's use that.
+
+```{r}
+pcr.pred <- predict(pcr.fit, ncomp = 17, test.X)
+mean((test.Y - pcr.pred)^2)
+```
+
+Similar performance.
 
 ## Part (f)
-Fit a PLS model on the training set, with $M$ chosen by cross-validation. Report the test error obtained, along with the value of $M$
-selected by cross-validation.
+Fit a PLS model on the training set, with $M$ chosen by cross-validation. Report the test error obtained, along with the value of $M$ selected
+by cross-validation.
+
+```{r}
+pls.fit <- plsr(Apps ~ ., data = train, scale = TRUE, validation = "CV")
+summary(pls.fit)
+```
+
+Cool plot time:
+
+```{r}
+validationplot(pls.fit, val.type = "MSEP")
+```
+
+Best (adjusted) CV error for 8 components, which reduces dimensionality of data. Let's try that.
+
+```{r}
+pls.pred <- predict(pls.fit, ncomp = 8, test.X)
+mean((test.Y - pls.pred)^2)
+```
+
+Similar performance...
 
 ## Part (g)
-Comment on the results obtained. How accurately can we predict the number of college applications received? Is there much difference
-among the test errors resulting from these five approaches?
+Comment on the results obtained. How accurately can we predict the number of college applications received? Is there much difference among the test
+errors resulting from these five approaches?
+
+We will use the formula for $R^2$:
+
+$$
+R^2 = 1 - \frac{\mathrm{RSS}}{\mathrm{TSS}} = 1 - \frac{\sum_{i = 1}^n (y_i - \hat y_i)^2}{\sum_{i = 1}^n (y_i - \overline y)}.
+$$
+
+Tally ho:
+
+```{r}
+tss   <- sum((test.Y - mean(test.Y))^2) 
+preds <- list(lm.pred, ridge.pred, lasso.pred, pcr.pred, pls.pred)
+rsss  <- lapply(preds, function(v) sum((v - test.Y)^2))
+rsqs  <- sapply(rsss, function(rss) 1 - rss/tss)
+names <- c("OLS", "Ridge", "Lasso", "PCR", "PLS")
+
+barplot(rsqs, names.arg = names)
+```
+
+Differences are barely noticable. However notice that OLS and PCR have the same $R^2$ which is not surprising since we used 17 components for PCR
+which is equivalent to performing OLS. PLS did the best job of dimensionality reduction, with 8 dimensions, followed by lasso with 15.
