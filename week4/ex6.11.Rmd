@@ -1,0 +1,26 @@
+---
+title: "Exercise 3.11"
+author: "Kári Hlynsson"
+date: "2024-02-13"
+output: html_document
+---
+
+We will now try to predict per capita crime rate in the `Boston` data set.
+
+## Part (a)
+Try out some of the regression methods explored in this chapter, such as best subset selection, 
+the lasso, ridge regression, and PCR. Present and discuss results for the approaches that you consider.
+
+```{r}
+library(ISLR2)
+data(Boston)
+```
+
+
+## Part (b)
+Propose a model (or set of models) that seem to perform well on this data set, and justify your answer. 
+Make sure that you are evaluating model performance using validation set error, cross-validation, or some 
+other reasonable alternative, as opposed to using training error.
+
+## Part
+Does your chosen model involve all of the features in the data set? Why or why not?
