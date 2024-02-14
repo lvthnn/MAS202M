@@ -4,3 +4,104 @@ author: "Kári Hlynsson"
 date: "2024-02-13"
 output: html_document
 ---
+
+Fit some of the non-linear models investigated in this chapter to the `Auto` data set.
+Is there evidence for non-linear relationships in this data set? Create some informative
+plots to justify your answer.
+
+```{r}
+library(ISLR2)
+library(boot)
+library(scales)
+data(Auto)
+attach(Auto)
+
+set.seed(1)
+```
+
+`mpg` as a function of `weight`.
+
+```{r}
+cv.errs <- sapply(1:10, function(d) {
+  glm.fit <- glm(mpg ~ poly(weight, d), data = Auto)
+  glm.cv  <- cv.glm(Auto, glm.fit, K = 10)
+  return(glm.cv$delta[2])
+})
+
+plot(cv.errs, type = "b", xlab = "Polynomial degree", ylab = "CV error")
+```
+
+$d = 2$ seems to do the best job.
+
+```{r}
+which.min(cv.errs)
+```
+
+Best model visualisation:
+
+```{r}
+glm.fit <- glm(mpg ~ poly(weight, 2), data = Auto)
+weight.seq <- seq(1613, 5140)
+
+glm.pred <- predict(glm.fit, list(weight = weight.seq), se = T)
+glm.se   <- cbind(glm.pred$fit - 1.96 * glm.pred$se.fit,
+                  glm.pred$fit + 1.96 * glm.pred$se.fit)
+
+plot(mpg ~ weight, data = Auto, col = alpha(1, 0.15))
+lines(weight.seq, glm.pred$fit, lwd = 1.5)
+matlines(weight.seq, glm.se, col = 1, lty = 2)
+```
+
+This seems to be a pretty good fit. 
+
+```{r}
+summary(glm.fit)
+```
+
+Let's try some other relationships. 
+
+`acceleration` vs. `mpg` with splines. Let's try having a knot at 10, 15 and 20. Also let's cross-validate over
+the degree of the splines.
+
+```{r warning = FALSE}
+library(splines)
+
+knots <- c(10, 15, 20)
+
+cv.errs <- sapply(1:7, function(d) {
+  spline.fit <- glm(mpg ~ bs(acceleration, knots = knots, degree = d), data = Auto)
+  spline.cv  <- cv.glm(Auto, spline.fit, K = 10)
+  return(spline.cv$delta[2])
+})
+
+plot(cv.errs, xlab = "Spline degree", ylab = "CV error", type = "b")
+```
+
+It seems like a linear spline is best here.
+
+```{r}
+acceleration.seq <- seq(8.0, 24.8)
+spline.fit  <- glm(mpg ~ bs(acceleration, knots = knots, degree = 1), data = Auto)
+spline.pred <- predict(spline.fit, list(acceleration = acceleration.seq), se = T)
+spline.se   <- cbind(spline.pred$fit - 1.96 * spline.pred$se.fit,
+                     spline.pred$fit + 1.96 * spline.pred$se.fit)
+
+plot(mpg ~ acceleration, data = Auto, col = alpha(1, 0.15))
+lines(acceleration.seq, spline.pred$fit, lwd = 1.5)
+matlines(acceleration.seq, spline.se, col = 1, lty = 2)
+```
+
+This is a non-linear relationship. We could also try fitting a smoothing spline:
+
+```{r warning = FALSE}
+smooth.fit <- smooth.spline(acceleration, mpg, cv = TRUE)
+smooth.fit$df
+```
+Let's try it out:
+
+```{r}
+plot(mpg ~ acceleration, data = Auto, col = alpha(1, 0.15))
+lines(smooth.fit, lwd = 1.5)
+```
+
+Cooool.

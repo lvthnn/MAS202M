@@ -4,3 +4,103 @@ author: "Kári Hlynsson"
 date: "2024-02-13"
 output: html_document
 ---
+
+In this exercise, you will further analyse the `Wage` data set considered throughout
+this chapter.
+
+## Part (a)
+Perform polynomial regression to predict `wage` using `age`. Use cross-validation to select
+the optimal degree $d$ for the polynomial. What degree was chosen, and how does this compare
+to the results of hypothesis testing using ANOVA? Make a plot of the resulting polynomial fit
+to the data.
+
+Split the data set:
+
+```{r}
+library(ISLR2)
+library(boot)
+library(scales)
+data(Wage)
+
+set.seed(1)
+```
+
+Fit the polynomials and validate:
+
+```{r}
+cv.errs <- sapply(1:10, function(d) {
+  glm.fit <- glm(wage ~ poly(age, d), data = Wage)
+  cv.err  <- cv.glm(Wage, glm.fit, K = 10)
+  return(cv.err$delta[2])
+})
+
+plot(cv.errs, type = "b", xlab = "Polynomial degree", ylab = "CV error")
+```
+
+The above plot shows the cross-validated test set MSE as a function of the degree of the polynomial fit.
+It is indeed consistent with the ANOVA (F-tests) performed in the Lab section of the chapter; we see that
+the linear and quadratic models are dominated by the cubic model, and any reduction in the CV error with increasing
+polynomial degree is minimal. This would correspond to polynomial models with quartic terms or higher being
+statistically insignificant on an ANOVA as seen in the chapter.
+
+A polynomial of degree 3 does the job. Let's look at it graphically:
+
+```{r}
+opt.pol  <- lm(wage ~ poly(age, 3), data = Wage)
+age.seq  <- seq(18, 80)
+
+opt.pred <- predict(opt.pol, list(age = age.seq), se = TRUE)
+opt.se   <- cbind(opt.pred$fit - 1.96 * opt.pred$se.fit,
+                  opt.pred$fit + 1.96 * opt.pred$se.fit)
+
+plot(Wage$age, Wage$wage, col = alpha(4, alpha = 0.1), xlab = "Age", ylab = "Wage")
+lines(age.seq, opt.pred$fit, lwd = 1.5, col = 4)
+matlines(age.seq, opt.se, lwd = 1.25, lty = 2, col = 4)
+```
+
+## Part (b)
+Fit a step function to predict `wage` using `age`, and perform cross-validation to choose the optimal
+number of cuts. Make a plot of the fit observed.
+
+```{r}
+cv.errs <- sapply(2:20, function(d) {
+  Wage$age.cut <- cut(Wage$age, d)
+  
+  glm.fit <- glm(wage ~ age.cut, data = Wage)
+  cv.err  <- cv.glm(Wage, glm.fit, K = 10)
+  return(cv.err$delta[2])
+})
+
+plot(2:20, cv.errs, type = "b", xlab = "No. cuts", ylab = "CV error")
+```
+
+```{r}
+cv.errs
+which.min(cv.errs)
+```
+
+I believe 8 is best since it lowers the CV error substantially without complexifying the model to an unnecessary degree. We could of course try and see whether this is the case.
+
+```{r}
+models <- lapply(2:20, function(d) {
+  Wage$age.cut <- cut(Wage$age, d)
+  glm.fit <- glm(wage ~ age.cut, data = Wage)
+  return(glm.fit)
+})
+
+do.call(anova, c(models, test = "F"))
+```
+
+Indeed 8 cuts seem to be significant. Make a visual of this step function:
+
+```{r}
+step.fit  <- glm(wage ~ cut(age, 8), data = Wage)
+step.pred <- predict(step.fit, list(age = age.seq), se = T)
+step.se   <- cbind(step.pred$fit - 1.96 * step.pred$se.fit,
+                   step.pred$fit + 1.96 * step.pred$se.fit)
+
+plot(wage ~ age, data = Wage, xlab = "Age", ylab = "Wage", col = alpha(4, 0.1))
+lines(age.seq, step.pred$fit, lwd = 1.5, col = 4)
+matlines(age.seq, step.se, lwd = 1.25, lty = 2, col = 4)
+```
+

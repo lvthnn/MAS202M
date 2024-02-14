@@ -63,7 +63,7 @@ which.min(reg.summary$cp)
 ```
 
 I will take the subset with index 8 since it does a good job of minimising the adjusted $R^2$ and
-$C_p$ while also keeping the \$\$\\mathrm{BIC}\$ relatively small. We could also look at how the
+$C_p$ while also keeping the $\mathrm{BIC}$ relatively small. We could also look at how the
 different subsets perform in terms of training and test set MSE.
 
 ```{r}
@@ -249,7 +249,7 @@ pls.mse  <- mean((pls.pred - test.Y)^2)
 pls.mse
 ```
 
-## Part(b)
+## Part (b)
 
 Propose a model (or set of models) that seem to perform well on this data set, and justify your
 answer. Make sure that you are evaluating model performance using validation set error,

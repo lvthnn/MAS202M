@@ -4,3 +4,166 @@ author: "Kári Hlynsson"
 date: "2024-02-13"
 output: html_document
 ---
+
+This question uses the variable `dis` (the weighted mean of distances to five Boston employment centres)
+and `nox` (nitrogen oxides concentration in parts per 10 million) from the `Boston` data. We will treat `dis`
+as the predictor and `nox` as the response.
+
+## Part (a)
+Use the `poly()` function to fit a cubic polynomial regression to predict `nox` using `dis`. Report the regression output,
+and plot the resulting data and polynomial fits.
+
+```{r}
+library(ISLR2)
+data(Boston)
+attach(Boston)
+
+set.seed(1)
+
+poly.fit <- glm(nox ~ poly(dis, 3), data = Boston)
+summary(poly.fit)
+```
+
+All terms significant.
+
+```{r}
+dis.grid  <- seq(1.1296, 12.1265, length.out = 100)
+poly.pred <- predict(poly.fit, list(dis = dis.grid), se = T)
+poly.se   <- cbind(poly.pred$fit - 1.96 * poly.pred$se.fit,
+                   poly.pred$fit + 1.96 * poly.pred$se.fit)
+
+plot(nox ~ dis, data = Boston, col = alpha(1, 0.10))
+lines(dis.grid, poly.pred$fit, lwd = 1.5)
+matlines(dis.grid, poly.se, col = 1, lty = 2)
+```
+
+
+## Part (b)
+Plot the polynomial fits for a range of different polynomial degrees (say, from 1 to 10), and report the associated residual 
+sum of squares.
+
+```{r}
+par(mfrow = c(2, 5))
+
+rsss <- sapply(1:10, function(d) {
+  poly.fit <- glm(nox ~ poly(dis, d), data = Boston)
+  dis.grid  <- seq(1.1296, 12.1265, length.out = 100)
+  poly.pl <- predict(poly.fit, list(dis = dis.grid), se = T)
+  poly.se   <- cbind(poly.pl$fit - 1.96 * poly.pl$se.fit,
+                     poly.pl$fit + 1.96 * poly.pl$se.fit)
+  
+  plot(nox ~ dis, data = Boston, col = alpha(1, 0.10))
+  lines(dis.grid, poly.pl$fit, lwd = 1.5)
+  matlines(dis.grid, poly.se, col = 1, lty = 2)
+  
+  poly.pred <- predict(poly.fit, Boston)
+  rss <- sum((poly.pred - nox)^2)
+})
+```
+
+Residual sums of squares:
+
+```{r}
+rsss
+```
+
+```{r}
+plot(rsss, xlab = "Polynomial degree", ylab = "RSS", type = "b")
+```
+ 
+RSS monotonically decreases with increased polynomial degree.
+
+## Part (c)
+Perform cross-validation or another approach to select the optimal degree for the polynomial, and explain your results.
+
+```{r}
+cv.errs <- sapply(1:10, function(d) {
+  glm.fit <- glm(nox ~ poly(dis, d), data = Boston)
+  glm.cv  <- cv.glm(Boston, glm.fit, K = 10)
+  return(glm.cv$delta[2])
+})
+
+plot(cv.errs, type = "b", xlab = "Polynomial degree", ylab = "CV error")
+```
+
+```{r}
+cv.errs
+which.min(cv.errs)
+```
+
+Best polynomial is a quartic polynomial.
+
+## Part (d)
+Use the `bs()` function to fit a regression spline to predict `nox` using `dis`. Report the output for the fit using four
+degrees of freedom. How did you choose the knots? Plot the resulting fit.
+
+Place knots at roughly uniform intervals.
+
+```{r}
+library(splines)
+knots <- c(3, 6, 9)
+
+spl.fit  <- glm(nox ~ bs(dis, df = 4), data = Boston)
+spl.pred <- predict(spl.fit, list(dis = dis.grid), se = T)
+spl.se   <- cbind(spl.pred$fit - 1.96 * spl.pred$se.fit,
+                  spl.pred$fit + 1.96 * spl.pred$se.fit)
+
+plot(nox ~ dis, data = Boston, col = alpha(1, 0.10))
+lines(dis.grid, spl.pred$fit, lwd = 1.5)
+matlines(dis.grid, spl.se, lty = 2, col = 1)
+```
+
+## Part (e)
+Now fit a regression spline for a range of degrees of freedom, and plot the resulting fits and report the resulting RSS.
+Describe the results obtained.
+
+```{r}
+par(mfrow = c(2, 5))
+
+rsss <- sapply(1:10, function(d) {
+  spl.fit  <- glm(nox ~ bs(dis, knots = knots, degree = d), data = Boston)
+  dis.grid <- seq(1.1296, 12.1265, length.out = 100)
+  spl.pl   <- predict(spl.fit, list(dis = dis.grid), se = T)
+  spl.se   <- cbind(spl.pl$fit - 1.96 * spl.pl$se.fit,
+                    spl.pl$fit + 1.96 * spl.pl$se.fit)
+  
+  plot(nox ~ dis, data = Boston, col = alpha(1, 0.10))
+  lines(dis.grid, spl.pl$fit, lwd = 1.5)
+  matlines(dis.grid, spl.se, col = 1, lty = 2)
+  
+  spl.pred <- predict(spl.fit, Boston)
+  rss <- sum((spl.pred - nox)^2)
+})
+```
+
+RSSs:
+
+```{r}
+rsss
+```
+```{r}
+plot(rsss, type = "b", xlab = "Spline df.", ylab = "RSS")
+```
+
+We are seeing the smallest RSS for 10 degrees of freedom as the RSS decreases monotonically.
+
+## Part (f)
+Perform cross-validation or another approach in order to select the best degrees of freedom for a regression spline on this data.
+Describe your results.
+
+```{r warning = FALSE}
+cv.errs <- sapply(1:10, function(d) {
+  spl.fit <- glm(nox ~ bs(dis, knots = knots, degree = d), data = Boston)
+  spl.cv  <- cv.glm(Boston, spl.fit, K = 10)
+  return(spl.cv$delta[2])
+})
+
+par(mfrow = c(1, 2))
+plot(cv.errs, type = "b", xlab = "Degrees of freedom", ylab = "CV error")
+plot(cv.errs[-c(8:10)], type = "b", xlab = "Degrees of freedom", ylab = "CV error")
+```
+
+```{r}
+cv.errs
+which.min(cv.errs)
+```
