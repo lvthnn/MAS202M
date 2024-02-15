@@ -19,6 +19,7 @@ library(ISLR2)
 library(equatiomatic)
 
 data(Auto)
+attach(Auto)
 
 panel.hist <- function(x, ...)
 {

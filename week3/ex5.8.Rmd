@@ -22,13 +22,14 @@ In this data set, what is $n$ and what is $p$? Write out the model used to gener
 ```{r}
 set.seed(1)
 x <- rnorm(100)
-y <- x - 2 * x^2 + rnorm(100)
+e <- rnorm(100)
+y <- x - 2 * x^2 + e
 ```
 
 The model we have generated has $n = 100$ and $p = 2$ and
 
 $$
-X \sim \mathcal N(\mathbf{0}, \mathbf I_{100}) \quad \text{and} \quad Y \sim \mathcal N(X - 2X^2, \sigma^2 \mathbf{I}_{100}).
+X_i \sim \mathcal N(0, 1) \quad \text{and} \quad Y_i = X_i - 2X_i^2 \quad \forall i \in \{1, \ldots, 100\}
 $$
 
 ## Part (b)
@@ -70,7 +71,7 @@ cv.res <- sapply(1:4, function(d) {
 cv_errs <- do.call(cbind, cv.res[1,])
 colnames(cv_errs) <- paste0("model", 1:4)
 
-models <- boot.res[2,]
+models <- cv.res[2,]
 ```
 
 The cross validation errors are virtually identical for each model, so there does not seem to be any induced bias in the LOOCV process.
@@ -79,11 +80,21 @@ The cross validation errors are virtually identical for each model, so there doe
 plot(1:4, cv_errs[1,], type = "b", xlab = "Polynomial degree", ylab = "LOOCV error")
 ```
 
-Upon including the quadratic term most of the variance in the data. In fact, the cubic and quartic terms fail to reach statistical significance. This is evident when displaying the models visually against the data.
+```{r}
+which.min(cv_errs[1,])
+```
+
+Upon including the quadratic term most of the variance in the data is explained. In fact, the cubic and quartic terms fail to reach statistical significance.
+
+```{r}
+do.call(anova, c(models, test = "F"))
+```
+
+It helps to display the models visually against the data to get a feel for how the fit changes with an increase in polynomial degree.
 
 ```{r}
 plot(df$x, df$y, xlab = "X", ylab = "Y")
-sapply(1:4, function(d) {
+catch <- sapply(1:4, function(d) {
   poly.mdl  <- models[[d]]
   poly.pred <- predict(poly.mdl, df)
   ord <- order(x)
@@ -119,10 +130,10 @@ cv.res <- sapply(1:4, function(d) {
 cv_errs <- do.call(cbind, cv.res[1,])
 colnames(cv_errs) <- paste0("model", 1:4)
 
-models <- boot.res[2,]
+models <- cv.res[2,]
 
 plot(df$x, df$y, xlab = "X", ylab = "Y")
-sapply(1:4, function(d) {
+catch <- sapply(1:4, function(d) {
   poly.mdl  <- models[[d]]
   poly.pred <- predict(poly.mdl, df)
   ord <- order(x)
