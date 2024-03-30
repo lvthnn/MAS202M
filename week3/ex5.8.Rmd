@@ -1,7 +1,7 @@
 ---
 title: "Exercise 5.8"
 author: "Kári Hlynsson"
-date: "2024-01-21"
+date: "2024-02-17"
 output: html_document
 ---
 
@@ -19,47 +19,60 @@ y <- x - 2 * x^2 + rnorm(100)
 
 In this data set, what is $n$ and what is $p$? Write out the model used to generate the data in equation form.
 
+#### Solution.
+
+The data set is generated as per the code below:
+
 ```{r}
 set.seed(1)
-x <- rnorm(100)
-e <- rnorm(100)
-y <- x - 2 * x^2 + e
+x <- rnorm(100)      # random covariate vector
+e <- rnorm(100)      # random error vector
+y <- x - 2 * x^2 + e # response
 ```
 
-The model we have generated has $n = 100$ and $p = 2$ and
+The model we have generated has $n = 100$ and $p = 2$, where
 
 $$
-X_i \sim \mathcal N(0, 1) \quad \text{and} \quad Y_i = X_i - 2X_i^2 \quad \forall i \in \{1, \ldots, 100\}
+X_i \sim \mathcal N(0, 1) \quad \text{and} \quad Y_i \sim \mathcal N(X_i - 2X_i^2, 1)\quad \forall i \in \{1, \ldots, 100\}.
 $$
 
 ## Part (b)
 
 Create a scatter plot of $X$ against $Y$. Comment on what you find.
 
+#### Solution.
+
+Plot $X$ against $Y$ below:
+
 ```{r}
 plot(x, y, xlab = "X", ylab = "Y")
 ```
 
-Parabola shape.
+The above figure shows the random vectors which are distributed in a parabolic shape.
 
 ## Part (c)
 
 Set a random seed, and then compute the LOOCV errors that result from fitting the following four models using least squares:
 
-1.  $Y = \beta_0 + \beta_1 X + \epsilon$
+1.  $\mathcal M_1: Y = \beta_0 + \beta_1 X + \epsilon$
 
-2.  $Y = \beta_0 + \beta_1 X + \beta_2 X^2 + \epsilon$
+2.  $\mathcal M_2: Y = \beta_0 + \beta_1 X + \beta_2 X^2 + \epsilon$
 
-3.  $Y = \beta_0 + \beta_1 X + \beta_2 X^2 + \beta_3 X^3 + \epsilon$
+3.  $\mathcal M_3: Y = \beta_0 + \beta_1 X + \beta_2 X^2 + \beta_3 X^3 + \epsilon$
 
-4.  $Y = \beta_0 + \beta_1 X + \beta_2 X^2 + \beta_3 X^3 + \beta_4 X^4 + \epsilon$
+4.  $\mathcal M_4: Y = \beta_0 + \beta_1 X + \beta_2 X^2 + \beta_3 X^3 + \beta_4 X^4 + \epsilon$
 
 Note that you may find it helpful to use the `data.frame()` function to create a single data set containing both $X$ and $Y$.
+
+#### Solution.
+
+We will use the `cv.glm()` function to speed up things. This requires importing the `boot` package. I also use the `poly()` function when fitting the models with `raw` set to `TRUE` to use the raw polynomial basis and not an orthogonal polynomial basis.
 
 ```{r}
 library(boot)
 df <- data.frame(x, y)
 
+# LOOCV for polynomials of degree 1-4
 cv.res <- sapply(1:4, function(d) {
   glm.fit <- glm(y ~ poly(x, d, raw = TRUE), data = df)
   loocv <- cv.glm(df, glm.fit)$delta
@@ -68,31 +81,38 @@ cv.res <- sapply(1:4, function(d) {
   return(list(loocv, glm.fit))
 })
 
+# bind CV errors into table
 cv_errs <- do.call(cbind, cv.res[1,])
 colnames(cv_errs) <- paste0("model", 1:4)
 
+# extract model objects from cv.res
 models <- cv.res[2,]
+
+cv_errs
 ```
 
-The cross validation errors are virtually identical for each model, so there does not seem to be any induced bias in the LOOCV process.
+The cross validation errors (i.e. raw and biased) are virtually identical for each model, so there does not seem to be any induced bias in the LOOCV process.
 
 ```{r}
 plot(1:4, cv_errs[1,], type = "b", xlab = "Polynomial degree", ylab = "LOOCV error")
 ```
 
+Let's see which model minimises the LOOCV error:
+
 ```{r}
 which.min(cv_errs[1,])
 ```
 
-Upon including the quadratic term most of the variance in the data is explained. In fact, the cubic and quartic terms fail to reach statistical significance.
+It is $\mathcal M_2$. Upon including the quadratic term most of the variance in the data is explained. We can see this by performing an F test. This test works by comparing the variance in the data explained by the model, in this case sequentially across the models $\mathcal M_1, \mathcal M_2, \mathcal M_3$ and $\mathcal M_4$:
 
 ```{r}
 do.call(anova, c(models, test = "F"))
 ```
 
-It helps to display the models visually against the data to get a feel for how the fit changes with an increase in polynomial degree.
+From the above output we see that model 2 is favourable to model 1. However the same can not be said when comparing models 3 and 4 to model 2. Therefore, the quadratic term seems to be most suitable, which is what one would expect. It helps to display the models visually against the data to get a feel for how the fit changes with an increase in polynomial degree.
 
 ```{r}
+# plot all the polynomial fits against the data
 plot(df$x, df$y, xlab = "X", ylab = "Y")
 catch <- sapply(1:4, function(d) {
   poly.mdl  <- models[[d]]
@@ -106,19 +126,24 @@ legend("bottom", inset = c(0.05, 0.05), legend = paste("Model", 1:4), horiz = TR
        lwd = 2.5, col = 2:5, lty = 1:4, cex = 0.8, bty = "n")
 ```
 
+Here we see that model 1 does a very poor job of describing the data, whereas models 2, 3 and 4 are nearly identical fits. This would indeed motivate us to use the quadratic model, $\mathcal M_2$, by the law of parsimony.
+
 ## Part (d)
 
 Repeat (c) using another random seed, and report your results. Are your results the same as what you got in (c)? Why?
+
+#### Solution.
 
 When the code below is run it shows very little different in the results, only in the visualisation do we see a difference which stems solely from the fact that a different random vector underlies the data and thus the range will vary accordingly.
 
 ```{r}
 set.seed(42)
-x <- rnorm(100)
+x <- rnorm(100) # new covariate vector
 y <- x - 2 * x^2 + rnorm(100)
 
 df <- data.frame(x, y)
 
+# LOOCV for polynomials of degree 1-4
 cv.res <- sapply(1:4, function(d) {
   glm.fit <- glm(y ~ poly(x, d, raw = TRUE), data = df)
   loocv <- cv.glm(df, glm.fit)$delta
@@ -127,11 +152,14 @@ cv.res <- sapply(1:4, function(d) {
   return(list(loocv, glm.fit))
 })
 
+# gather CV errors into table
 cv_errs <- do.call(cbind, cv.res[1,])
 colnames(cv_errs) <- paste0("model", 1:4)
 
+# new fitted polynomial objects
 models <- cv.res[2,]
 
+# plot the polynomial fits against the data
 plot(df$x, df$y, xlab = "X", ylab = "Y")
 catch <- sapply(1:4, function(d) {
   poly.mdl  <- models[[d]]
@@ -149,10 +177,24 @@ legend("bottom", inset = c(0.05, 0.05), legend = paste("Model", 1:4), horiz = TR
 
 Which of the models in (c) had the smallest LOOCV error? Is that what you expected? Explain your answer.
 
-Model 2, I have explained this.
+#### Solution.
+
+In part (c) we saw that the quadratic polynomial yielded the smallest LOOCV error. This is to be expected since the
+underlying model is a quadratic polynomial in $x$.
 
 ## Part (f)
 
 Comment on the statistical significance of the coefficient estimates that results from fitting each of the models in (c) using least squares. Do these results agree with the conclusions drawn based on the cross-validation results?
 
-Yes, I have explained this above.
+#### Solution.
+
+We conducted an F test to compare the explained variance by the models and concluded that model 2 was the most powerful. We can also see this from the outputs of the models objects.
+
+```{r}
+summary(models[[2]])
+summary(models[[3]])
+summary(models[[4]])
+```
+
+In all of the summaries the linear and quadratic terms are significant, but neither the cubic or the quartic term are significant.
+This is the same result as the one produced by the F test in part (c).
