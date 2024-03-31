@@ -1,0 +1,158 @@
+---
+title: Exercise 8.9
+date: March 2024
+output: html_document
+author: Kári Hlynsson
+---
+
+This problem involes the `OJ` data set which is part of the `ISLR2` package.
+
+## Part (a)
+
+Create a training set containing a random sample of 800 observations, and a 
+test set containing the remaining observations.
+
+```{r}
+library(ISLR2)
+data(OJ)
+
+set.seed(1)
+
+n <- nrow(OJ)
+p <- ncol(OJ)
+
+s <- sample(1:n, 800)
+r <- 1:n %in% s
+
+train <- OJ[r, ]
+test <- OJ[!r, ]
+```
+
+## Part (b)
+Fit a tree to the training data, with `Purchase` as the response and the other
+variables as predictors. Use the `summary()` function to produce summary
+statistics about the tree, and describe the results obtained. What is the
+training error rate? How many terminal nodes does the tree have?
+
+```{r}
+library(tree)
+
+purchase_tree <- tree(Purchase ~ ., data = train)
+summary(purchase_tree)
+```
+
+The number of terminal nodes is 8 as seen in the summary output. The training
+error rate is in terms of misclassification and is \(133 / 800 = 0.1662\).
+
+## Part (c)
+Type in the name of the tree object in order to get a detailed text output.
+Pick one of the terminal nodes, and interpret the information displayed.
+
+```{r}
+purchase_tree
+```
+
+Node 24 states that if `PctDiscMM < 0.196196`, classify the observation as 
+`CH`, whereas node 25 states if `PctDiscMM > 0.196196`, classify it as `MM`.
+
+## Part (d)
+Create a plot of the tree, and interpret the results.
+
+```{r}
+plot(purchase_tree)
+text(purchase_tree, pretty = 0)
+```
+
+## Part (e)
+Predict the reponse on the test data, and produce a confusion matrix comparing
+the test labels to the predicted test labels. What is the test error rate?
+
+```{r}
+library(caret)
+
+tree_pred <- predict(purchase_tree, test, type = "class")
+tree_conf <- confusionMatrix(tree_pred, test$Purchase)
+tree_conf
+```
+
+The test error rate is \(1 - 0.8296 = 0.1704\). The sensitivity is \(0.9524\) 
+and the specificity is \(0.6275\), so the classifier isn't all that bad.
+
+## Part (f)
+Apply the `cv.tree()` function to the training set in order to determine the
+optimal tree size.
+
+```{r}
+purchase_cv <- cv.tree(purchase_tree, FUN = prune.misclass)
+
+par(mfrow = c(1, 2))
+
+plot(
+  purchase_cv$size,
+  purchase_cv$dev,
+  type = "b",
+  xlab = "Size",
+  ylab = "Deviance"
+)
+
+plot(
+  purchase_cv$k,
+  purchase_cv$dev,
+  type = "b",
+  xlab = "k",
+  ylab = "Deviance"
+)
+```
+
+```{r}
+n_opt <- purchase_cv$size[which.min(purchase_cv$dev)]
+```
+
+The optimal number of terminal nodes is `r n_opt`.
+
+## Part (g)
+Produce a plot with tree size on the \(x\)-axis and cross-validated
+classification error rate on the \(y\)-axis.
+
+```{r}
+plot(purchase_cv$size, purchase_cv$dev,
+  xlab = "Terminal node size",
+  ylab = "CV classifiction error rate", type = "b"
+)
+```
+
+## Part (h)
+Which tree size corresponds to the lowest cross-validated classification
+error rate?
+
+`r n_opt`.
+
+## Part (i)
+Produce a pruned tree corresponding to the optimal tree size obtained using
+cross-validation. If cross-validation does not lead to selection of a pruned
+tree, then create a pruned tree with five terminal nodes.
+
+```{r}
+purchase_prune <- prune.tree(purchase_tree, best = n_opt)
+
+prune_pred <- predict(purchase_prune, test, type = "class")
+prune_conf <- confusionMatrix(prune_pred, test$Purchase)
+prune_conf
+```
+
+## Part (j)
+Compare the training error rates between the pruned and unpruned trees. Which
+is higher?
+
+The training error rate is slightly lower for the larger tree with all of the
+predictors (`r summary(purchase_tree)$misclass[1] / summary(purchase_tree)$
+misclass[2]`) when compared to the pruned tree  (`r summary(purchase_prune)$
+misclass[1] / summary(purchase_prune)$misclass[2]`).
+
+## Part (k)
+Compare the test error rates between the pruned and unpruned trees. Which is
+higher?
+
+The test error rate for the original tree is 
+`r 1 - tree_conf$overall["Accuracy"]` whereas for the pruned tree it is 
+`r 1 - prune_conf$overall["Accuracy"]`. This is consistent with the theory.

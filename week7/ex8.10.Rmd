@@ -1,0 +1,224 @@
+---
+title: Exercise 8.10
+date: March 2024
+output: html_document
+author: Kári Hlynsson
+---
+
+We now use boosting to predict `Salary` in the `Hitters` data set.
+
+## Part (a)
+Remove the observations for whom the salary information is unknown, and then
+log-transform the salaries.
+
+```{r}
+library(ISLR2)
+data(Hitters)
+
+hitters <- Hitters[!is.na(Hitters$Salary), ]
+hitters$SalaryLog <- log(hitters$Salary)
+
+n <- nrow(hitters)
+p <- ncol(hitters)
+```
+
+## Part (b)
+Create a training set consisting of the first 200 observations, and a test set
+consisting of the remaining observations.
+
+```{r}
+train <- hitters[1:200, ]
+test <- hitters[201:263, ]
+```
+
+## Part (c)
+Perform boosting on the training set with 1,000 trees for a range of values of
+the shrinkage parameter \(\lambda\). Produce a plot with different shrinkage
+values on the \(x\)-axis and the corresponding training set MSE on the
+\(y\)-axis.
+
+```{r}
+library(gbm3)
+
+set.seed(1)
+
+lambda <- 10^seq(-10, -0.2, by = 0.1)
+
+out <- lapply(lambda, function(l) {
+  hitters_boost_l <- gbm(
+    SalaryLog ~ . - Salary,
+    data = train,
+    distribution = "gaussian",
+    n.trees = 1000,
+    shrinkage = l,
+    verbose = FALSE
+  )
+
+  boost_l_pred_tr <- predict(hitters_boost_l, train, n.trees = 1000)
+  boost_l_pred_ts <- predict(hitters_boost_l, test, n.trees = 1000)
+  boost_l_mse_tr <- mean((boost_l_pred_tr - train$SalaryLog)^2)
+  boost_l_mse_ts <- mean((boost_l_pred_ts - test$SalaryLog)^2)
+
+  return(c(boost_l_mse_tr, boost_l_mse_ts))
+})
+
+lambda_mse <- do.call(rbind, out)
+
+train_mse <- lambda_mse[, 1]
+test_mse <- lambda_mse[, 2]
+```
+
+See part (d) for plot of training MSE.
+
+## Part (d)
+Produce a plot with different shrinkage values on the \(x\)-axis and the
+corresponding test set MSE on the \(y\)-axis.
+
+```{r}
+dot_scale <- 0.75
+
+plot(
+  lambda,
+  train_mse,
+  type = "b",
+  col = "blue",
+  cex = dot_scale,
+  xlab = expression(lambda),
+  ylab = "Training set MSE",
+  lwd = 1.5
+)
+
+lines(
+  lambda,
+  test_mse,
+  type = "b",
+  col = "red",
+  cex = dot_scale,
+  lwd = 1.5
+)
+
+legend(
+  "topright",
+  bty = "n",
+  legend = c("Train MSE", "Test MSE"),
+  col = c("blue", "red"),
+  cex = dot_scale,
+  lwd = 1.5
+)
+```
+
+The training set MSE is decreasing with increasing values of \(\lambda\)
+whereas the test set MSE decreases initially but starts increasing for
+\(\lambda > 0.1\), likely due to overfitting. The optimal value for the
+test set MSE is
+
+```{r}
+lambda_opt <- lambda[which.min(test_mse)]
+```
+
+or `r lambda_opt`. Fit this model for later use:
+
+```{r}
+hitters_boost <- gbm(
+  SalaryLog ~ . - Salary,
+  data = train,
+  distribution = "gaussian",
+  n.trees = 1000,
+  shrinkage = lambda_opt
+)
+
+boost_mse_tr <- min(train_mse)
+boost_mse_ts <- min(test_mse)
+```
+
+## Part (e)
+Compare the test MSE of boosting to the test MSE that results from applying two
+of the regression approaches seen in Chapters 3 and 6.
+
+Standard linear model:
+
+```{r}
+hitters_lm <- lm(SalaryLog ~ . - Salary, data = train)
+
+lm_pred_tr <- predict(hitters_lm, train)
+lm_mse_tr <- mean((lm_pred_tr - train$SalaryLog)^2)
+
+lm_pred_ts <- predict(hitters_lm, test)
+lm_mse_ts <- mean((lm_pred_ts - test$SalaryLog)^2)
+```
+
+Training set MSE for standard linear model is `r lm_mse_tr` and the test set
+MSE is `r lm_mse_ts`, both higher than the counterparts provided by boosting
+regression trees.
+
+LASSO model with CV tuning for shrinkage parameter:
+
+```{r}
+library(glmnet)
+
+l_grid <- 10^seq(10, -2, length = 100)
+
+x_train <- model.matrix(SalaryLog ~ ., data = train[, -19])
+y_train <- train$SalaryLog
+
+x_test <- model.matrix(SalaryLog ~ ., data = test[, -19])
+y_test <- test$SalaryLog
+
+hitters_lasso <- glmnet(x_train, y_train, alpha = 0, lambda = l_grid)
+plot(hitters_lasso)
+```
+
+Find the optimal shrinkage parameter value:
+
+```{r}
+hitters_lasso_cv <- cv.glmnet(x_train, y_train, alpha = 1)
+plot(hitters_lasso_cv)
+```
+
+Best \(\lambda\):
+
+```{r}
+lambda_opt <- hitters_lasso_cv$lambda.min
+
+lasso_cv_pred_tr <- predict(hitters_lasso_cv, s = lambda_opt, x_train)
+lasso_cv_mse_tr <- mean((lasso_cv_pred_tr - y_train)^2)
+
+lasso_cv_pred_ts <- predict(hitters_lasso_cv, s = lambda_opt, x_test)
+lasso_cv_mse_ts <- mean((lasso_cv_pred_ts - y_test)^2)
+```
+
+The training set MSE for an optimally-tuned LASSO regression model is
+`r lasso_cv_mse_tr` and the test set MSE is `r lasso_cv_mse_ts`, again
+both higher than that of the boosting approach.
+
+This might suggest that the true relationship does not conform to a linear
+model and is more suitably approximated by non-linear models.
+
+## Part (f)
+Which variables appear to be the most important predictors in the boosted
+model?
+
+```{r}
+summary(hitters_boost)
+```
+
+The top 3 most important variables are `CAtBat`, `CRuns` and `CRBI`.
+
+## Part (g)
+Now apply bagging to the training set. What is the test MSE for this approach?
+
+```{r}
+library(randomForest)
+
+hitters_bagging <- randomForest(
+  SalaryLog ~ . - Salary,
+  data = train,
+  mtry = 19
+)
+
+bagging_pred <- predict(hitters_bagging, test)
+bagging_mse_ts <- mean((bagging_pred - test$SalaryLog)^2)
+```
+
+The MSE for bagging is `r bagging_mse_ts`, which is lower than the boosting
+test MSE.
