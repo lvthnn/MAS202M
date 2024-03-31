@@ -1,0 +1,242 @@
+---
+title: Exercise 8.8
+date: "March 2024"
+output: html_document 
+author: Kári Hlynsson
+---
+
+In the lab, a classificiation tree was applied to the `Carseats`
+data after converting `Sales` into a qualitative reponse variable.
+Now we will seek to predict `Sales` using regression trees and related
+approaches, treating the response as a quantitative variable.
+
+## Part (a) 
+Split the data set into a training set and a test set.
+
+```{r}
+library(ISLR2)
+data(Carseats)
+
+set.seed(1)
+
+n <- nrow(Carseats)
+p <- ncol(Carseats) - 1
+train_prop <- 0.75
+
+s <- sample(
+  c(TRUE, FALSE),
+  size = n,
+  replace = TRUE,
+  prob = c(train_prop, 1 - train_prop)
+)
+
+train <- Carseats[s, ]
+test <- Carseats[!s, ]
+```
+
+## Part (b)
+Fit a regression tree to the training set. Plot the tree, and intrepret
+the results. What test MSE do you obtain?
+
+Start by fitting the tree:
+
+```{r}
+library(tree)
+
+tree_cars <- tree(Sales ~ ., data = train)
+summary(tree_cars)
+```
+
+The predictors in the data used in the regression tree were `ShelveLoc`,
+`Price`, `CompPrice`, `Age`, `Income` and `Advertising`, i.e. 6 out of 11
+predictors.
+
+Produce the requested plot:
+
+```{r}
+plot(tree_cars)
+text(tree_cars, pretty = 0)
+```
+
+Now let's compute the test MSE:
+
+```{r}
+tree_pred <- predict(tree_cars, test)
+tree_mse <- mean((tree_pred - test$Sales)^2)
+```
+
+The test MSE is `r tree_mse`.
+
+## Part (c)
+Use cross-validation in order to determine the optimal level of tree
+complexity. Does pruning the tree improve the test MSE?
+
+```{r}
+cv_cars <- cv.tree(tree_cars)
+
+par(mfrow = c(1, 2))
+plot(
+  cv_cars$size,
+  cv_cars$dev,
+  type = "b",
+  xlab = "No. Terminal Nodes",
+  ylab = "Deviance"
+)
+
+plot(
+  cv_cars$k,
+  cv_cars$dev,
+  type = "b",
+  xlab = "k",
+  ylab = "Deviance"
+)
+```
+
+The deviance of the regression tree is highest for \(n = 1\) terminal nodes 
+and decreases up to \(n = 5\) whereupon it starts fluctuating a bit up and 
+down. The value of \(n\) which minimises the deviance is \(n = 9\) as can be 
+seen by the code below. Thus the optimal value of terminal nodes seems to be
+nine nodes.
+
+```{r}
+n_opt <- cv_cars$size[which.min(cv_cars$dev)]
+print(n_opt)
+```
+
+Let's try pruning the regression tree `tree_cars` to yield an optimal tree
+with nine terminal nodes:
+
+```{r}
+cars_prune <- prune.tree(tree_cars, best = n_opt)
+
+plot(cars_prune)
+text(cars_prune, pretty = 0)
+```
+Measure the MSE:
+
+```{r}
+prune_pred <- predict(cars_prune, test)
+prune_mse <- mean((prune_pred - test$Sales)^2)
+```
+
+The MSE of the pruned tree with the optimal value of \(n = 9\) is `r opt_mse`,
+which is slightly higher than that of the original model where all the 
+predictors were involved. However, this tree is a bit smaller and thus 
+slightly more interpretable.
+
+## Part (d)
+Use the bagging approach in order to analyse this data. What test MSE do you
+obtain? Use the `importance()` function to determine which variables are most
+important.
+
+```{r}
+library(randomForest)
+
+cars_bagging <- randomForest(Sales ~ ., data = train, mtry = p - 1)
+bag_pred <- predict(cars_bagging, test)
+bag_mse <- mean((bag_pred - test$Sales)^2)
+```
+
+The bagging MSE is `r bag_mse`, which is a drastic improvement on the pruned
+regression tree.
+
+```{r}
+bagging_importance <- importance(cars_bagging)
+ord <- order(bagging_importance, decreasing = TRUE)
+
+print(bagging_importance[ord, , drop = FALSE] |> head(5))
+varImpPlot(cars_bagging)
+```
+
+The top 5 most important variables are `ShelveLoc`, `Price`, `CompPrice`,
+`Age` and `Advertising`.
+
+## Part (e)
+Use random forests to analyse this data. What test MSE do you obtain? Use the 
+`importance()` function to determine which variables are most important.
+Describe the effect of \(m\), the number of variables considered at each split,
+on the error rate obtained.
+
+Fit a random forest model with \(m = p/3\):
+
+```{r}
+cars_rf <- randomForest(Sales ~ ., data = train)
+
+rf_pred <- predict(cars_rf, test)
+rf_mse <- mean((rf_pred - test$Sales)^2)
+```
+
+The MSE is `r rf_mse`, which is slightly higher than that of the bagging
+model. Variable importances:
+
+```{r}
+rf_importance <- importance(cars_rf)
+ord <- order(rf_importance, decreasing = TRUE)
+
+print(rf_importance[ord, , drop = FALSE] |> head(5))
+varImpPlot(cars_rf)
+```
+
+The top 5 most important variables have remained unchanged, although `Age` has
+overtaken `CompPrice` in terms of variable importance.
+
+Let's try looking at how the error rate changes with \(m\):
+
+```{r}
+errs <- sapply(1:p, function(i) {
+  cars_rf_i <- randomForest(Sales ~ ., data = train)
+  rf_i_pred <- predict(cars_rf_i, test)
+  rf_mse <- mean((rf_i_pred - test$Sales)^2)
+})
+
+plot(1:p, errs, type = "b", xlab = "m", ylab = "Test MSE")
+```
+
+The test MSE seems to be relatively stable for different values for \(m\) but
+is optimal for \(m = 5\), with the test MSE being `r errs[5]`. This is
+considerably higher than \(\sqrt{p}\) or \(p/3\) as per the gold standard, but
+is consistent with our findings that the bagging model performed better. This
+may be a better parameter value for \(m\).
+
+## Part (f)
+Now analyse the data using BART, and report your results.
+
+```{r}
+library(BART)
+
+x <- Carseats[, 2:(p + 1)]
+y <- Carseats[, 1]
+
+x_train <- x[s, ]
+x_test <- x[!s, ]
+y_train <- y[s]
+y_test <- y[!s]
+```
+
+Compute the test MSE and look at variable importances in terms of occurence
+in the ensemble:
+
+```{r}
+cars_bart <- gbart(x_train, y_train, x.test = x_test)
+
+bart_pred <- cars_bart$yhat.test.mean
+bart_mse <- mean((bart_pred - test$Sales)^2)
+```
+
+The BART MSE is `r bart_mse`, the best so far.
+
+```{r}
+mses <- c(tree_mse, prune_mse, bag_mse, rf_mse, errs[5], bart_mse)
+names <- c(
+  "Tree", "Pruned Tree", "Bagging", "Random Forest",
+  "CV Random Forest", "BART"
+)
+
+barplot(
+  mses,
+  names.arg = names,
+  xlab = "Method",
+  ylab = "Test MSE",
+  cex.names = 0.6
+)
+```
