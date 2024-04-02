@@ -1,0 +1,139 @@
+---
+title: Exercise 9.7
+date: April 2024
+output: html_document
+author: Kári Hlynsson
+---
+
+In this problem, you will use support vector approaches in order to predict
+whether a given car gets high or low gas mileage based on the `Auto` data set.
+
+## Part (a)
+Create a binary varable that takes on a 1 for cars with gas mileage above the
+median, and a 0 for cars with gas mileage below the median.
+
+```{r}
+library(ISLR2)
+data(Auto)
+
+set.seed(1)
+
+Auto$mpg01 <- as.factor(ifelse(Auto$mpg > median(Auto$mpg), "Above", "Below"))
+Auto <- subset(Auto, select = -name)
+```
+
+## Part (b)
+Fit a support vector classifier to the data with various values of `cost`, in
+order to predict whether a car gets high or low gas mileage. Report the
+cross-validation errors associated with different values for this parameter.
+Comment on your results. Note you will need to fit the classifier without the
+gas mileage variable to produce sensible results.
+
+```{r}
+library(e1071)
+
+svc <- tune(
+  svm,
+  mpg01 ~ .,
+  data = Auto,
+  kernel = "linear",
+  ranges = list(
+    cost = c(0.001, 0.01, 0.1, 1, 10, 100, 1000)
+  )
+)
+```
+
+Let's take a look at CV error as a function of log `cost` during tuning:
+
+```{r}
+plot(log(svc$performances$cost, base = 10),
+     svc$performances$error, type = "b",
+     xlab = "Log(Cost)",
+     ylab = "CV Error")
+```
+
+The best value for `cost` is `r svc[["best.parameters"]]`, with a CV error
+rate of `r svc[["best.performance"]]`, which corresponds to a training set
+accuracy of `r 1 - svc[["best.performance"]]`, which is pretty good.
+
+## Part (c)
+Now repeat (b), this time using SVMs with radial and polynomial basis kernels,
+with defferent values of `gamma` and `degree` and `cost`. Comment on your
+results.
+
+Let's start with the radial kernel.
+
+```{r}
+svm_radial <- tune(
+  svm,
+  mpg01 ~ .,
+  data = Auto,
+  kernel = "radial",
+  ranges = list(
+    gamma = c(0.5, 1, 2, 3, 4, 5),
+    cost = c(0.001, 0.01, 0.1, 1, 10, 100, 1000)
+  )
+)
+```
+
+Best performance is for \(\gamma = `r svm_radial$best.parameters["gamma"]`\)
+and `cost` \(= `r svm_radial$best.parameters["cost"]`\). This yields a CV
+error of \(`r svm_radial$best.performance`\), which corresponds to an accuracy
+of \(`r 1 - svm_radial$best.performance`\).
+
+Let's do the same for the polynomial basis kernel. We will study polynomials
+up to degree six.
+
+```{r}
+svm_poly <- tune(
+  svm,
+  mpg01 ~ .,
+  data = Auto,
+  kernel = "polynomial",
+  ranges = list(
+    d = 1:6,
+    cost = c(0.001, 0.01, 0.1, 1, 10, 100, 1000)
+  )
+)
+```
+
+Best performance is given by \(d = `r svm_poly$best.parameters["d"]`\) and
+`cost` \(= `r svm_poly$best.parameters["cost"]`\), yielding a CV error of
+\(`r svm_poly$best.performance`\), again corresponding to an accuracy of
+\(`r 1 - svm_poly$best.performance`\).
+
+## Part (d)
+Make some plots to back up your assertions in (b) and (c).
+
+We will create plots of all the decision boundaries for a given method to see
+how well the method is capturing the relationships in the data. This
+corresponds to 8 plots per method.
+
+```{r}
+vars <- colnames(Auto)
+
+plot_vars <- function(fit) {
+  for (var in vars[!(vars %in% c("mpg", "mpg01"))]) {
+    plot(fit$best.model, Auto, as.formula(paste0("mpg ~ ", var)),
+         svSymbol = 10, dataSymbol = 20)
+  }
+}
+```
+
+### SVC
+
+```{r}
+plot_vars(svc)
+```
+
+### SVM -- Radial
+
+```{r}
+plot_vars(svm_radial)
+```
+
+### SVM -- Polynomial
+
+```{r}
+plot_vars(svm_poly)
+```

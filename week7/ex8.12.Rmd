@@ -1,0 +1,350 @@
+---
+title: Exercise 8.12
+date: March 2024
+output: html_document 
+author: Kári Hlynsson
+---
+
+```{r setup, include=FALSE, message = FALSE}
+panel_hist <- function(x, ...) {
+  usr <- par("usr")
+  par(usr = c(usr[1:2], 0, 1.5))
+  h <- hist(x, plot = FALSE)
+  breaks <- h$breaks
+  nb <- length(breaks)
+  y <- h$counts
+  y <- y / max(y)
+  rect(breaks[-nb], 0, breaks[-1], y, ...)
+}
+
+panel_cor <- function(x, y, digits = 2, prefix = "", cex_cor, ...) {
+  par(usr = c(0, 1, 0, 1))
+  r <- cor(x, y)
+  txt <- format(c(r, 0.123456789), digits = digits)[1]
+  txt <- paste0(prefix, txt)
+  text(0.5, 0.5, txt, cex = 1.5)
+}
+
+pair_plot <- function(x) {
+  pairs(x, diag.panel = panel_hist, upper.panel = panel_cor)
+}
+```
+
+Apply boosting, bagging, random forests, and BART to a data set of your choice.
+Be sure to fit the models on a training set and to evaluate their performance
+on a test set. How accurate are the results compared to simple methods like
+linear or logistic regression? Which of these approaches yields the best
+performance?
+
+```{r}
+library(ISLR2)
+library(Biostatistics)
+
+set.seed(1)
+
+data(longevity)
+
+n <- nrow(longevity)
+p <- ncol(longevity)
+
+# convert some stuff to factors
+longevity$class <- as.factor(longevity$class)
+longevity$volancy <- as.factor(longevity$volancy)
+longevity$fossoriallity <- as.factor(longevity$fossoriallity)
+longevity$foraging_environment <- as.factor(longevity$foraging_environment)
+longevity$daily_activity <- as.factor(longevity$daily_activity)
+
+longevity <- subset(longevity, select = -c(species, order))
+```
+
+Pair plot of the data:
+
+```{r}
+pair_plot(longevity)
+```
+
+Let's log-transform the mass, since it seems to be exponentially distributed:
+
+```{r}
+longevity$log_mass_g <- log(longevity$mass_g, base = 10)
+longevity <- subset(longevity, select = -mass_g)
+```
+
+Do the pair plot again:
+
+```{r}
+pair_plot(longevity)
+```
+
+Split the data into a training and test set:
+
+```{r}
+# split data into training and test set
+prop_train <- 0.75
+s <- sample(
+  c(TRUE, FALSE),
+  size = n,
+  replace = TRUE,
+  prob = c(prop_train, 1 - prop_train)
+)
+
+train <- longevity[s, ]
+test <- longevity[!s, ]
+
+method_eff <- data.frame(
+  method = character(),
+  mse_tr = double(),
+  mse_ts = double()
+)
+```
+
+This data set contains data on the maximum lifespan of various species of
+mammals and birds along with other predictors, such as mass, volancy (ability
+to fly), foraging environment and so on. We will try to model the maximum
+lifespan of these animals as a function of the aforementioned predictors
+in the data set, excluding species and order since they are more granular
+nomenclature which is unlikely to be give useful results (too many levels).
+
+For fun, let's start with a regression tree to get a (possible not-so-accurate)
+feel for the data. We will keep a track of the training and test set MSE for
+the different methods employed here to see which ones are most effective in
+describing the relationship in the data.
+
+```{r}
+library(tree)
+longevity_tree <- tree(maximum_lifespan_yr ~ ., data = train)
+
+tree_pred_tr <- predict(longevity_tree, train)
+tree_pred_ts <- predict(longevity_tree, test)
+
+tree_mse_tr <- mean((tree_pred_tr - train$maximum_lifespan_yr)^2)
+tree_mse_ts <- mean((tree_pred_ts - test$maximum_lifespan_yr)^2)
+
+method_eff[1, ] <- c("Regression Tree", tree_mse_tr, tree_mse_ts)
+```
+
+## Boosting
+
+Perform boosting and optimise the shrinkage hyperparameter, \(\lambda\).
+To prevent trees from becoming too convoluted I set `interaction.depth`
+to 5.
+
+```{r cache = TRUE}
+library(gbm3)
+library(pbapply)
+
+n_trees <- 1000
+lambda <- 10^seq(-10, -0.2, by = 0.1)
+
+res_boost <- pblapply(lambda, function(l) {
+  longevity_boost_l <- gbm(
+    maximum_lifespan_yr ~ .,
+    data = train,
+    distribution = "gaussian",
+    n.trees = n_trees,
+    interaction.depth = 5,
+    shrinkage = l
+  )
+
+  boost_l_pred_tr <- predict(longevity_boost_l, train, n.trees = n_trees)
+  boost_l_pred_ts <- predict(longevity_boost_l, test, n.trees = n_trees)
+
+  boost_l_mse_tr <- mean((boost_l_pred_tr - train$maximum_lifespan_yr)^2)
+  boost_l_mse_ts <- mean((boost_l_pred_ts - test$maximum_lifespan_yr)^2)
+
+  return(c(l, boost_l_mse_tr, boost_l_mse_ts))
+})
+```
+
+Analysis
+
+```{r}
+boost_mse <- data.frame(do.call(rbind, res_boost))
+colnames(boost_mse) <- c("lambda", "train_mse", "test_mse")
+
+plot(
+  boost_mse$lambda,
+  boost_mse$train_mse,
+  type = "l",
+  lwd = 1.5,
+  ylim = range(boost_mse$train_mse, boost_mse$test_mse),
+  xlab = expression(lambda),
+  ylab = "MSE"
+)
+
+lines(boost_mse$lambda, boost_mse$test_mse, lwd = 1.5, lty = 2)
+
+legend(
+  "topright",
+  bty = "n",
+  legend = c("Training set MSE", "Test set MSE"),
+  lty = 1:2,
+  lwd = 1.5
+)
+```
+
+The training set error tends to zero as \(\lambda\) increases, but the
+test error has a minima close to zero, due to overfitting.
+
+```{r}
+ind <- which.min(boost_mse$test_mse)
+boost_lambda_opt <- boost_mse$lambda[ind]
+boost_opt_mse_tr <- boost_mse$train_mse[ind]
+boost_opt_mse_ts <- boost_mse$test_mse[ind]
+
+method_eff[2, ] <- c("Boosting", boost_opt_mse_tr, boost_opt_mse_ts)
+```
+
+The optimal value for the shrinkage parameter is 
+\(\lambda = `r boost_lambda_opt`\). This achieves a training set MSE of 
+`r boost_opt_mse_tr` and a test set MSE of `r boost_opt_mse_ts`.
+
+## Bagging
+
+It's in the bag!
+
+```{r}
+library(randomForest)
+
+longevity_bag <- randomForest(
+  maximum_lifespan_yr ~ .,
+  data = train,
+  mtry = 6,
+  importance = TRUE
+)
+
+longevity_bag
+```
+
+Compute the MSE of the training and test set (we already have the traning MSE
+in the output, but I want the exact quantity).
+
+```{r}
+bag_pred_ts <- predict(longevity_bag, test)
+
+bag_mse_tr <- mean((longevity_bag$predicted - train$maximum_lifespan_yr)^2)
+bag_mse_ts <- mean((bag_pred_ts - test$maximum_lifespan_yr)^2)
+
+method_eff[3, ] <- c("Bagging", bag_mse_tr, bag_mse_ts)
+```
+
+Importance:
+
+```{r}
+importance(longevity_bag)
+
+varImpPlot(longevity_bag)
+```
+
+The most important variables are `log_mass_g`, `foraging_environment` and
+`daily_activity`.
+
+## Random Forest
+
+We use random forests with hyperparameter optimisation for \(m\), the number
+of variables considered at each split.
+
+```{r}
+rf_out <- sapply(1:6, function(i) {
+
+  longevity_rf_i <- randomForest(
+    maximum_lifespan_yr ~ .,
+    data = train,
+    mtry = i,
+    importance = TRUE
+  )
+
+  rf_i_pred <- predict(longevity_rf_i, test)
+  rf_i_mse <- mean((rf_i_pred - test$maximum_lifespan_yr)^2)
+
+})
+
+plot(1:6, rf_out, type = "b", xlab = "m", ylab = "Test set MSE")
+```
+
+Optimal value of \(m = 3\).
+
+```{r}
+longevity_rf <- randomForest(
+  maximum_lifespan_yr ~ .,
+  data = train,
+  mtry = 3,
+  importance = TRUE
+)
+
+rf_pred_ts <- predict(longevity_rf, test)
+
+rf_mse_tr <- mean((longevity_rf$predicted - train$maximum_lifespan_yr)^2)
+rf_mse_ts <- mean((rf_pred_ts - test$maximum_lifespan_yr)^2)
+
+method_eff[3, ] <- c("Random Forest", rf_mse_tr, rf_mse_ts)
+```
+
+## BART SIMPSON
+
+```{r}
+library(BART)
+
+x_train <- train[, -2]
+y_train <- train[, 2]
+
+x_test <- test[, -2]
+y_test <- test[, 2]
+
+longevity_bart <- gbart(x_train, y_train, x.test = x_test)
+```
+
+Calculate error:
+
+```{r}
+bart_pred_tr <- longevity_bart$yhat.train.mean
+bart_pred_ts <- longevity_bart$yhat.test.mean
+
+bart_mse_tr <- mean((bart_pred_tr - y_train)^2)
+bart_mse_ts <- mean((bart_pred_ts - y_test)^2)
+
+method_eff[4, ] <- c("BART", bart_mse_tr, bart_mse_ts)
+```
+
+Variable importances:
+
+```{r}
+ord <- order(longevity_bart$varcount.mean, decreasing = TRUE)
+longevity_bart$varcount.mean[ord]
+```
+
+The most important variables according to BART are `log_mass_g`,
+`foraging_environment4` (terrestrial) and `daily_activity3` (diurnal).
+
+## Linear models
+
+Basic linear model:
+
+```{r}
+longevity_lm <- lm(maximum_lifespan_yr ~ ., data = train)
+
+lm_pred_tr <- longevity_lm$fitted.values
+lm_pred_ts <- predict(longevity_lm, test)
+
+lm_mse_tr <- mean((lm_pred_tr - train$maximum_lifespan_yr)^2)
+lm_mse_ts <- mean((lm_pred_ts - test$maximum_lifespan_yr)^2)
+
+method_eff[5, ] <- c("Linear model", lm_mse_tr, lm_mse_ts)
+```
+
+## Conclusions
+
+```{r echo = FALSE}
+library(knitr)
+
+method_eff$mse_tr <- as.double(method_eff$mse_tr)
+method_eff$mse_ts <- as.double(method_eff$mse_ts)
+ord <- order(method_eff$mse_ts)
+
+method_eff <- method_eff[ord, ]
+rownames(method_eff) <- 1:5
+
+kable(method_eff)
+```
+
+Boosting is performing best out of all the methods explored on this data set.

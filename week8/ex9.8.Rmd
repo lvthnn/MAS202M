@@ -1,0 +1,170 @@
+---
+title: Exercise 9.8
+date: April 2024
+output: html_document 
+---
+
+This problem involves the `OJ` data set which is part of the `ISLR2` package.
+
+## Part (a)
+Create a training set containing a random sample of 800 observations, and a
+test set containing the remaining observations.
+
+```{r}
+library(ISLR2)
+data(OJ)
+
+set.seed(1)
+n <- nrow(OJ)
+p <- ncol(OJ)
+
+tr <- sample(1:n, 800)
+
+train <- OJ[tr, ]
+test <- OJ[setdiff(1:n, tr), ]
+
+df_methods <- data.frame(
+  method = character(),
+  train_err = double(),
+  test_err = double()
+)
+```
+
+## Part (b)
+Fit a support vector classifier to the training data using `cost = 0.01`, with
+`Purchase` as the response and the other variables as predictors. Use the
+`summary()` function to produce summary statistics, and describe the results
+obtained.
+
+```{r}
+library(e1071)
+library(caret)
+
+svc <- svm(Purchase ~ ., data = train, kernel = "linear", cost = 0.01)
+
+summary(svc)
+```
+
+
+## Part (c)
+What are the training and test error rates?
+
+```{r}
+eval_error <- function(cm) (cm[1, 2] + cm[2, 1]) / sum(cm)
+
+svm_err <- function(svm) {
+  cm_tr <- table(svm$fitted, train$Purchase)
+  err_tr <- eval_error(cm_tr)
+
+  svm_pred <- predict(svm, test)
+  cm_ts <- table(svm_pred, test$Purchase)
+  err_ts <- eval_error(cm_ts)
+
+  return(list(err_tr = err_tr, err_ts = err_ts))
+}
+
+svc_err <- svm_err(svc)
+svc_err
+
+df_methods[1, ] <- c("SVC", svc_err)
+```
+
+## Part (d)
+Use the `tune()` function to select an optimal `cost`. Consider values in the
+range 0.01 to 10.
+
+```{r}
+cost_seq <- seq(0.01, 10, length.out = 15)
+
+tune_svm <- function(kernel, ranges) {
+  tune_out <- tune(
+    svm,
+    Purchase ~ .,
+    data = train,
+    kernel = kernel,
+    ranges = ranges
+  )
+
+  plot(tune_out)
+
+  res <- list(
+    model_opt = tune_out$best.model,
+    model_params = tune_out$best.parameters
+  )
+
+  return(res)
+}
+
+svc_opt <- tune_svm(
+  "linear",
+  ranges = list(cost = cost_seq)
+)
+```
+
+## Part (e)
+Compute the training and test error rates using this new value for `cost`.
+
+```{r}
+svc_opt_err <- svm_err(svc_opt$model_opt)
+
+df_methods[2, ] <- c("SVC tuned", svc_opt_err)
+```
+
+## Part (f)
+Repeat parts (b) through (c) using a support vector machine with a radial 
+kernel. Use the default value for `gamma`.
+
+```{r}
+svm_radial <- svm(Purchase ~ ., data = train, kernel = "radial", cost = 0.01)
+
+summary(svm_radial)
+
+svm_radial_err <- svm_err(svm_radial)
+df_methods[3, ] <- c("SVM Radial", svm_radial_err)
+```
+
+Tune it
+
+```{r}
+svm_radial_tune <- tune_svm("radial", list(cost = cost_seq))
+```
+
+Performance for tuned model
+
+```{r}
+svm_radial_opt_err <- svm_err(svm_radial_tune$model_opt)
+
+df_methods[4, ] <- c("SVM Radial Tuned", svm_radial_opt_err)
+```
+
+## Part (g)
+Repeat parts (b) through (e) using a support vector machine with a polynomial
+kernel. Set `degree = 2`.
+
+```{r}
+svm_poly <- svm(Purchase ~ ., data = train, cost = 0.01, kernel = "polynomial",
+                degree = 2)
+
+summary(svm_poly)
+
+svm_poly_err <- svm_err(svm_poly)
+
+df_methods[5, ] <- c("SVM Polynomial", svm_poly_err)
+```
+
+Tune it
+
+```{r}
+svm_poly_opt <- tune_svm("polynomial", cost_seq)
+
+svm_poly_opt_err <- svm_err(svm_poly_opt$model_opt)
+
+df_methods[6, ] <- c("SVM Polynomial Tuned", svm_poly_opt_err)
+```
+
+## Part (h)
+Overall, which approach sems to give the best results on this data?
+
+```{r}
+df_methods[order(df_methods$test_err), ]
+```

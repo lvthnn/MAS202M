@@ -1,0 +1,247 @@
+---
+title: Exercise 9.4
+date: March 2024
+output: html_document 
+author: Kári Hlynsson
+---
+
+Generate a simulated two-class data set with 100 observations and two features
+in which there is a visible but non-linear separation between the two classes.
+Show that in this setting, a support vector machine with a polynomial kernel
+(with degree greater than 1) or a radial kernel will outperform a support
+vector classifier on the training data. Which technique performs best on the
+test data? Make plots and report training and test error rates in order to back
+up your assertions.
+
+The below code shows the data generation process. We start by generating 100
+\(x\)-values where \(x_i \sim \mathcal N(3.5, 1.75^2)\) and generate an
+\(y\)-coordinate using \(y_i \sim \mathcal N(x_i^2 + 2x_i + 4, \epsilon_i)\)
+where \(\epsilon_i \sim \mathcal N(0, 20^2)\). We classify the \(y\)-values
+into two classes, `blue` and `orange`, using the function
+\[
+  \chi_y(x) = 0.35 e^x
+\]
+such that \(c_i = \) `blue` if \(y_i > \chi_y(x_i)\), and `orange` otherwise,
+where \(c_i\) denoted the class label of the \(i\)th observation. The data
+points along with the classification boundary are shown in the figure below.
+
+```{r}
+set.seed(1)
+
+p <- function(x) 0.35 * exp(x)
+x <- rnorm(100, mean = 3.5, sd = 1.75)
+y <- x^2 + 2 * x + 4 + rnorm(100, mean = 0, sd = 20)
+k <- c()
+
+for (i in 1:100) {
+  k[i] <- ifelse(y[i] > p(x[i]), "blue", "orange")
+}
+
+plot(function(x) 0.35 * exp(x), from = -3, to = 8,
+     xlim = range(x), ylim = range(y), lwd = 2.5,
+     ylab = "y")
+points(x, y, col = k, pch = 20, cex = 1.25)
+abline(h = 0, lty = 2)
+abline(v = 0, lty = 2)
+
+# train / test split
+n_train <- 75
+df <- data.frame(x = x, y = y, k = as.factor(k))
+tr <- sample(1:100, n_train)
+ts <- setdiff(1:100, tr)
+
+train <- df[tr, ]
+test <- df[ts, ]
+```
+
+Now let us try to classify these data using support vector classifiers and
+support vector machines and compare the two methods.
+
+
+## SVC
+
+```{r}
+library(e1071)
+library(caret)
+library(scales)
+
+svcfit <- svm(k ~ y + x, data = train, cost = 10, kernel = "linear")
+svcfit_pred <- predict(svcfit, test)
+
+svcfit_conf <- confusionMatrix(svcfit_pred, test$k)
+svcfit_conf
+```
+
+The accuracy with an out-of-the-box SVC is 0.8 -- mediocre. Visualise the
+decision boundary:
+
+```{r}
+plot(
+  svcfit,
+  train,
+  symbolPalette = c("blue", "orange"),
+  svSymbol = 10,
+  dataSymbol = 20,
+  color.palette = function(x) c(alpha("blue", 0.7), alpha("orange", 0.7))
+)
+```
+
+CV over cost parameter to obtain more accurate model:
+
+```{r}
+svcfit_tuned <- tune(
+  svm,
+  k ~ y + x,
+  data = train,
+  kernel = "linear",
+  ranges = list(
+    cost = 10^seq(-2, 2, length.out = 20)
+  )
+)
+
+tune_perf <- svcfit_tuned$performances
+
+plot(tune_perf$cost, tune_perf$error, type = "b",
+     xlab = "Cost", ylab = "Error")
+```
+
+The best value of cost is
+
+```{r}
+svcfit_tuned$best.parameters
+```
+
+Recover the best model:
+
+```{r}
+svcfit_opt <- svcfit_tuned$best.model
+svcfit_opt_pred <- predict(svcfit_opt, test)
+
+plot(
+  svcfit_opt,
+  train,
+  symbolPalette = c("blue", "orange"),
+  svSymbol = 10,
+  dataSymbol = 20,
+  color.palette = function(x) c(alpha("blue", 0.7), alpha("orange", 0.7))
+)
+
+svcfit_opt_conf <- confusionMatrix(svcfit_opt_pred, test$k)
+svcfit_opt_conf
+```
+
+## SVM
+
+```{r}
+svmfit_poly <- svm(k ~ y + x, data = train, kernel = "polynomial", d = 3,
+                   cost = 10)
+
+plot(
+  svmfit_poly,
+  train,
+  symbolPalette = c("blue", "orange"),
+  svSymbol = 10,
+  dataSymbol = 20,
+  color.palette = function(x) c(alpha("blue", 0.7), alpha("orange", 0.7))
+)
+```
+
+Let's try optimising the polynomial kernel SVM:
+
+```{r}
+svmfit_poly_tune <- tune(
+  svm,
+  k ~ y + x,
+  data = train,
+  kernel = "polynomial",
+  ranges = list(
+    d = 1:8,
+    cost = c(0.001, 0.01, 0.1, 1, 10, 100, 1000)
+  )
+)
+
+svmfit_poly_tune$best.parameters
+```
+
+Recover best model:
+
+```{r}
+svmfit_poly_opt <- svmfit_poly_tune$best.model
+svmfit_poly_opt_pred <- predict(svmfit_poly_opt, test)
+
+svmfit_poly_opt_conf <- confusionMatrix(svmfit_poly_opt_pred, test$k)
+
+plot(
+  svmfit_poly_opt,
+  train,
+  symbolPalette = c("blue", "orange"),
+  svSymbol = 10,
+  dataSymbol = 20,
+  color.palette = function(x) c(alpha("blue", 0.7), alpha("orange", 0.7))
+)
+
+svmfit_poly_opt_conf
+```
+
+It is considerably more accurate 
+SVM with radial basis kernel:
+
+```{r}
+svmfit_radial <- svm(k ~ y + x, data = train, kernel = "radial",
+                     gamma = 0.5, cost = 10)
+
+plot(
+  svmfit_radial,
+  train,
+  symbolPalette = c("blue", "orange"),
+  svSymbol = 10,
+  dataSymbol = 20,
+  color.palette = function(x) c(alpha("blue", 0.7), alpha("orange", 0.7))
+)
+
+svmfit_radial_pred <- predict(svmfit_radial, test)
+svmfit_radial_conf <- confusionMatrix(svmfit_radial_pred, test$k)
+
+svmfit_radial_conf
+```
+
+Tune the model:
+
+```{r}
+svmfit_radial_tune <- tune(
+  svm,
+  k ~ y + x,
+  data = train,
+  kernel = "radial",
+  ranges = list(
+    gamma = 10^seq(-2, 2, length.out = 20),
+    cost = 10^seq(-2, 2, length.out = 20)
+  )
+)
+
+svmfit_radial_tune$best.parameters
+```
+
+The best model:
+
+```{r}
+svmfit_radial_opt <- svmfit_radial_tune$best.model
+svmfit_radial_opt_pred <- predict(svmfit_radial_opt, test)
+svmfit_radial_opt_conf <- confusionMatrix(svmfit_radial_opt_pred, test$k)
+svmfit_radial_opt_conf
+```
+
+The accuracy is very high.
+
+```{r}
+plot(
+  svmfit_radial_opt,
+  train,
+  symbolPalette = c("blue", "orange"),
+  svSymbol = 10,
+  dataSymbol = 20,
+  color.palette = function(x) c(alpha("blue", 0.7), alpha("orange", 0.7))
+)
+```
+
+Radial basis kernel SVM for the win.

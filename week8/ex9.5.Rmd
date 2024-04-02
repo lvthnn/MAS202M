@@ -1,0 +1,151 @@
+---
+title: Exercise 9.5
+date: March 2024
+output: html_document
+author: Kári Hlynsson
+---
+
+We have seen that we can fit a SVM with a non-linear kernel in order to perform
+classification using a non-linear decision boundary. We will now see that we
+can also obtain a non-linear decision boundary by performing logistic
+regression using non-linear transformation of the features.
+
+## Part (a)
+Generate a data set with \(n = 500\) and \(p = 2\), such that the observations
+belong to two classes with a quadratic decision boundary between them. For
+instance, you can do this as follows:
+
+```
+> x1 <- runif(500) - 0.5
+> x2 <- runif(500) - 0.5
+> y <- 1 * (x1^2 - x2^2 > 0)
+```
+
+```{r}
+set.seed(123456)
+x1 <- runif(500) - 0.5
+x2 <- runif(500) - 0.5
+y <- 1 * (x1^2 - x2^2 > 0)
+
+df <- data.frame(x1 = x1, x2 = x2, y = y)
+```
+
+## Part (b)
+Plot the observations, coloured according to their class labels. Your plot
+should display \(X_1\) on the \(x\)-axis, and \(X_2\) on the \(y\)-axis.
+
+```{r}
+plot(x1, x2, col = ifelse(y == 1, "blue", "red"), xlab = expression(X[1]),
+     ylab = expression(X[2]))
+```
+
+## Part (c)
+Fit a logistic regression model to the data, using \(X_1\) and \(X_2\) as
+predictors.
+
+```{r}
+logreg <- glm(y ~ ., data = df, family = "binomial")
+```
+
+## Part (d)
+Apply this model to the *training data* in order to obtain a predicted class
+label for each training observation. Plot the observations, coloured according
+to the *predicted* class labels. The decision boundary should be linear.
+
+```{r}
+logreg_prob <- predict(logreg, df, type = "response")
+logreg_pred <- ifelse(logreg_prob > 0.5, 1, 0)
+
+plot(x1, x2, col = ifelse(logreg_pred == 1, "blue", "red"),
+     xlab = expression(X[1]), ylab = expression(X[2]))
+```
+
+## Part (e)
+Now fit a logistic regression model to the data using non-linear functions of
+\(X_1\) and \(X_2\) as predictors (e.g. \(X_1^2\), \(X_1 \cdot X_2\) etc.).
+
+```{r warning = FALSE}
+logreg_mixed <- glm(y ~ x1 + I(x1^2) + x2 + I(x2^2) + I(x1 * x2), data = df,
+                    family = "binomial")
+```
+
+
+## Part (f)
+Apply this model to the *training data* in order to obtain a predicted class
+label for each training observation. Plot the observations, coloured according
+to the *predicted* class labels. The decision boundary should be obviously
+non-linear. If it is not, then repeat (a)-(e) until you come up with an example
+in which the predicted class labels are obviously non-linear.
+
+```{r}
+logreg_mixed_prob <- predict(logreg_mixed, type = "response")
+logreg_mixed_pred <- ifelse(logreg_mixed_prob > 0.5, 1, 0)
+
+plot(x1, x2, col = ifelse(logreg_mixed_pred == 1, "blue", "red"))
+```
+
+Captures the true decision boundary quite well.
+
+## Part (g)
+Fit a support vector classifier to the data with \(X_1\) and \(X_2\) as
+predictors. Obtain a class prediction for each training observation. Plot the
+observations, coloured according to the *predicted class labels*.
+
+```{r}
+library(e1071)
+
+svc_tune <- tune(
+  svm,
+  as.factor(y) ~ x1 + x2,
+  data = df,
+  kernel = "linear",
+  ranges = list(
+    cost = c(0.01, 0.1, 1, 10, 100, 500)
+  )
+)
+```
+
+```{r}
+svc_fit <- svc_tune$best.model
+svc_pred <- predict(svc_fit, df)
+
+plot(x1, x2, col = ifelse(svc_pred == 1, "blue", "red"))
+```
+
+Absolutely terrible.
+
+## Part (h)
+Fit a SVM using a non-linear kernel to the data. Obtain a class prediction for
+each training observation. Plot the observations, coloured according to the
+*predicted class labels*.
+
+```{r}
+svm_tune <- tune(
+  svm,
+  as.factor(y) ~ x1 + x2,
+  data = df,
+  kernel = "radial",
+  ranges = list(
+    gamma = 10^seq(-2, 3, length.out = 10),
+    cost = 10^seq(-2, 3, length.out = 10)
+  )
+)
+```
+
+Analyse
+
+```{r}
+svm_fit <- svm_tune$best.model
+svm_pred <- predict(svm_fit, df)
+
+plot(x1, x2, col = ifelse(svm_pred == 1, "blue", "red"))
+```
+
+## Part (i)
+Comment on your results.
+
+The linear logistic regression model and the support vector classifier both
+failed to recognise the decision boundary, whereas the mixed term logistic
+regression model and the radial kernel support vector machine models did so
+very well. The SVM approach required less manual work than the logistic
+regression with mixed terms.
