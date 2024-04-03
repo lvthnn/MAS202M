@@ -1,0 +1,66 @@
+---
+title: Exercise 13.7
+date: April 2024
+output: html_document
+author: Kári Hlynsson
+---
+
+This problem makes use of the `Carseats` data set in the `ISLR2` package.
+
+## Part (a)
+For each quantitative variable in the data set besides `Sales`, fit a linear
+model to predict `Sales` using that quantitative variable. Report the
+\(p\)-values associated with the coefficients for the variables. That is, for
+each model of the form \(Y = \beta_0 + \beta_1 X + \epsilon\), report the
+\(p\)-value associated with the coefficient \(\beta_1\). Here, \(Y\) represents
+`Sales` and \(X\) represents one of the other quantitative variables.
+
+```{r}
+library(ISLR2)
+data(Carseats)
+```
+
+Fit the models and obtain the \(p\)-values:
+
+```{r}
+vars <- c("CompPrice", "Income", "Advertising", "Population", "Price",
+          "Age", "Education")
+
+pvals <- sapply(vars, function(var) {
+  fit <- lm(as.formula(paste0("Sales ~ ", var)), data = Carseats)
+  pval <- summary(fit)$coefficients[2, 4]
+  return(pval)
+})
+```
+
+## Part (b)
+Suppose we control the Type I error at level \(\alpha = 0.05\) for the
+\(p\)-values obtained in (a). Which null hypotheses do we reject?
+
+```{r}
+names(which(pvals < 0.05))
+```
+
+`Income`, `Advertising`, `Price` and `Age`.
+
+## Part (c)
+Now suppose we control the FWER at level 0.05 for the \(p\)-values. Which null
+hypotheses do we reject?
+
+```{r}
+# Bonferroni
+names(which(p.adjust(pvals, method = "bonferroni") < 0.05))
+
+# Holm
+names(which(p.adjust(pvals, method = "holm") < 0.05))
+```
+
+## Part (d)
+Finally, suppose we control the FDR at level 0.2 for the \(p\)-values. Which
+null hypotheses do we reject?
+
+```{r}
+names(which(p.adjust(pvals, method = "fdr") < 0.2))
+```
+
+Always the same variables, namely `Income`, `Advertising`, `Price` and `Age`.

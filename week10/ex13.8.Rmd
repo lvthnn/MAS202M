@@ -1,0 +1,103 @@
+---
+title: Exercise 13.8
+date: April 2024
+output: html_document
+author: Kári Hlynsson
+---
+
+In this problem, we will simulate data from \(m = 100\) fund managers.
+
+```r
+set.seed(1)
+n <- 20
+m <- 100
+X <- matrix(rnorm(n * m), ncol = m)
+```
+
+These data represent each fund manager's percentage returns for each of
+\(n = 20\) months. We wish to test the null hypothesis that each fund manager's
+percentage returns have population mean equal to zero. Notice that we simulated
+the data in such a way that each manager's percentage returns do have
+population mean zero; in other words, all \(m\) null hypotheses are true.
+
+## Part (a)
+Conduct a one-sample \(t\)-test for each fund manager, and plot a histogram of
+the \(p\)-values obtained.
+
+```{r}
+set.seed(1)
+n <- 20
+m <- 100
+X <- matrix(rnorm(n * m), ncol = m)
+```
+
+Conduct the \(t\)-tests and store the values:
+
+```{r}
+pvals <- sapply(1:n, function(i) t.test(X[i, ])$p.value)
+```
+
+Histogram below:
+
+```{r}
+hist(pvals, main = NA, xlab = "p-value")
+```
+
+## Part (b)
+If we control Type I error for each null hypothesis at level \(\alpha = 0.05\),
+then how many null hypotheses do we reject?
+
+```{r}
+sum(pvals < 0.05)
+```
+
+Only one test is rejected.
+
+## Part (c)
+If we control the FWER at level 0.05, then how many null hypotheses do we
+reject?
+
+```{r}
+sum(p.adjust(pvals, method = "bonferroni") < 0.05)
+```
+
+None of them.
+
+```{r}
+sum(p.adjust(pvals, method = "holm") < 0.05)
+```
+
+Holm gives the same as Bonferroni. Very nice!
+
+## Part (d)
+If we control the FDR at level 0.05, then how many null hypotheses do we
+reject?
+
+```{r}
+sum(p.adjust(pvals, method = "fdr") < 0.05)
+```
+
+None of them.
+
+## Part (e)
+Now suppose we "cherry-pick" the 10 fund managers who perform the best in our
+data. If we control the FWER for just these 10 fund managers at level 0.05,
+then how many null hypotheses do we reject? If we control the FDR for just these
+10 fund managers at level 0.05, then how many null hypotheses do we reject?
+
+```{r}
+means <- apply(X, 1, mean)
+best <- pvals[which(means %in% tail(sort(means), 10))]
+
+sum(p.adjust(best, method = "bonferroni") < 0.05)
+```
+
+Still, none of them are rejected.
+
+## Part (f)
+Explain why the analysis in (e) is misleading.
+
+Cherry picking goes against the predicate that these are in fact representative
+of the random variable that is the test statistic. Here we have deliberately
+skewed that distribution by picking the best results, which is a gross
+misrepresentation of the true population.

@@ -1,0 +1,71 @@
+---
+title: Exercise 11.11
+date: April 2024
+output: html_document
+author: Kári Hlynsson
+---
+
+This example make use of the data in Table 11.4.
+
+## Part (a)
+Create two groups of observations. In Group 1, \(X < 2\), whereas in Group 2,
+\(X \geq 2\). Plot the Kaplan-Meier survival curves corresponding to the two
+groups. Be sure to label the curves so that it is clear which curve corresponds
+to which group. By eye, does there appear to be a difference between the two
+groups' survival curves?
+
+```{r message = FALSE, warning = FALSE}
+library(survival)
+
+dat <- data.frame(
+  Y = c(26.5, 37.2, 57.3, 90.8, 20.2, 89.8),
+  d = c(1, 1, 1, 0, 0, 0),
+  X = c(0.1, 11, -0.3, 2.8, 1.8, 0.4)
+)
+
+dat$G <- as.factor(ifelse(dat$X < 2, "1", "2"))
+
+attach(dat)
+
+surv_fit <- survfit(Surv(Y, d) ~ G)
+plot(surv_fit, lwd = 2.25, col = 2:3, xlab = "Y", ylab = "Pr(d = 0 | Y > y)")
+legend("topright", bty = "n", legend = levels(G), lwd = 2.25, col = 2:3)
+```
+
+No discernible difference at first glance, or not one I would be comfortable
+standing by.
+
+## Part (b)
+Fit Cox's proportional hazards model, using the group indicator as a covariate.
+What is the estimated coefficient? Write a sentence providing the
+interpretation of this coefficient, in terms of the hazard or the
+instantaneous probability of the event. Is there evidence that the true
+coefficient value is non-zero?
+
+```{r}
+cox_fit <- coxph(Surv(Y, d) ~ G)
+summary(cox_fit)
+```
+
+Estimated coefficient shown in output above. The interpretation is that for an
+observation identical to another in every regard other than being G2 whereas
+its counterpart is G1, this would correspond to them being 
+\(exp(-0.3401) = 0.7117\) less likely to experience the event. However, the
+Wald test is not significant \(p \approx 0.783\) and thus we can not sustain
+this claimin actuality.
+
+## Part (c)
+Recall from Section 11.5.2 that in the case of a single binary covariate, the
+log-rank test statistic should be identical to the score statistic for the Cox
+model. Conduct a log-rank test to deterine whether there is a difference
+between the survival curves for the two groups. How does the \(p\)-value for
+the log-rank test statistic compare to the previous \(p\)-value for the score
+statistic for the Cox model from (b)?
+
+```{r}
+summary(cox_fit)$sctest
+survdiff(Surv(Y, d) ~ G)$pvalue
+```
+
+\(p\)-values insignificant in both tests -- no evidence for claiming that there
+is a difference in outcome between groups G1 and G2.

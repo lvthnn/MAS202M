@@ -2,6 +2,7 @@
 title: Exercise 9.8
 date: April 2024
 output: html_document 
+author: Kári Hlynsson
 ---
 
 This problem involves the `OJ` data set which is part of the `ISLR2` package.
