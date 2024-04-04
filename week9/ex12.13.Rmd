@@ -1,0 +1,143 @@
+---
+title: Exercise 12.13
+date: April 2024
+output: html_document 
+author: Kári Hlynsson
+---
+
+On the book website, `www.statlearning.com`, there is a gene expression data
+set (`Ch12Ex13.csv`) that consists of 40 tissue samples with measurements on
+1,000 genes. The first 20 samples are from healthy patients, while the second
+20 are from a diseased group.
+
+## Part (a)
+Load in the data using `read.csv()`. You will need to select `header = F`.
+
+```{r}
+tmp <- tempfile()
+download.file(
+  url = "https://www.statlearning.com/s/Ch12Ex13.csv",
+  dest = tmp
+)
+x <- t(read.csv(tmp, header = FALSE))
+rm(tmp)
+
+# 1 = healthy, 2 = diseased
+status <- c(rep(1, 20), rep(2, 20))
+```
+
+Data cleaning:
+
+```{r}
+rownames(x) <- paste0("P", 1:40)
+colnames(x) <- paste0("G", 1:1000)
+```
+
+Let's compute some summary statistics to infer whether scaling is necessary:
+
+```{r}
+apply(x, 2, mean) |> range()
+```
+
+Variances:
+
+```{r}
+apply(x, 2, var) |> range()
+```
+
+Close enough -- I don't think scaling is necessary.
+
+## Part (b)
+Apply hierarchical clustering to the samples using correlation-based distance,
+and plot the dendrogram. Do the genes separate the samples in to the two
+groups? Do your results depend on the type of linkage used?
+
+```{r}
+dd <- as.dist(1 - cor(t(x)))
+
+dclust <- function(link) {
+  xclust <- hclust(dd, method = link)
+  plot(xclust)
+
+  pred <- cutree(xclust, 2)
+
+  return(table(pred, status))
+}
+
+cl_complete <- dclust("complete")
+```
+
+Split dendrogram based on the two groups:
+
+```{r}
+cl_complete
+```
+
+The hierarchical clustering correctly identifies all diseased patients, but
+confuses almost half the healthy patients in case of complete linkage. Let's
+try single linkage.
+
+```{r}
+cl_single <- dclust("single")
+cl_single
+```
+
+Single linkage is better in terms of identifying healthy patients, but abysmal
+when it comes to identifying diseased patients -- in fact, it has a 100% error
+rate when it comes to identifying them.
+
+Average linkage:
+
+```{r}
+cl_average <- dclust("average")
+cl_average
+```
+
+Similar but slightly worse performance to the complete linkage clustering.
+
+Lastly, we have centroid linkage:
+
+```{r}
+cl_centroid <- dclust("centroid")
+cl_centroid
+```
+
+Terrible. Complete linkage turned out to be the best method.
+
+## Part (c)
+Your collaborator wants to know which genes differ the most across the two
+groups. Suggest a way to answer this question, and apply it here.
+
+As seen in (b), using hierarchical clustering with completel linkage yielded
+the best results where 100% of diseased patients were correctly identified.
+However, healthy patients were often misclassified which is not so good.
+
+We might want to test whether we can use PCA to identify genes central to the
+expression of disease status. I.e., if the principal components divide the
+two groups visually, we might be in luck. Let's try it out:
+
+```{r}
+pr <- prcomp(x, scale = TRUE)
+
+biplot(pr, scale = 0)
+```
+
+Although the principal components are fairly indecisive, there appears to be
+some division in the data when projected onto the principal component score
+values -- might these be our groups?
+
+```{r}
+plot(pr$x[, 1], pr$x[, 2], pch = paste(status), col = status + 2, cex = 1.5,
+     xlab = "PC1", ylab = "PC2")
+```
+
+Jackpot! We can classify the patients in terms of gene expression using the
+first principal component:
+
+```{r}
+pred_pca <- ifelse(pr$x[, 1] > 0, 2, 1)
+
+table(pred_pca, status)
+```
+
+Yippee!

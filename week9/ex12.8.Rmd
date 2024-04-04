@@ -1,0 +1,84 @@
+---
+title: Exercise 12.8
+date: April 2024
+output: html_document
+author: Kári Hlynsson
+---
+
+In Section 12.2.3, a formula for calculating PVE was given in Equation 12.10.
+We also saw that the `PVE` can be obtained using the `sdev` output of the
+`prcomp()` function.
+
+On the `USArrests` data, calculate PVE in two ways:
+
+## Part (a)
+Using the `sdev` output of the `prcomp()` function, as was done in Section
+12.2.3.
+
+```{r}
+library(ISLR2)
+data(USArrests)
+
+n <- nrow(USArrests)
+p <- ncol(USArrests)
+
+pr <- prcomp(USArrests, scale = TRUE)
+biplot(pr, scale = 0, cex = 0.75)
+```
+
+Calculate the PVE:
+
+```{r}
+pr_var <- pr$sdev^2
+pve <- pr_var / sum(pr_var)
+names(pve) <- paste0("PC", 1:4)
+
+pve
+```
+
+Two neat plots:
+
+```{r}
+par(mfrow = c(1, 2))
+
+plot(
+  1:4, pve, xlab = "PC", ylab = "PVE",
+  ylim = c(0, 1), type = "b", xaxt = "n"
+)
+
+axis(side = 1, at = 1:4)
+
+plot(
+  1:4, cumsum(pve), xlab = "PC", ylab = "Cumulative PVE",
+  ylim = c(0, 1), type = "b", xaxt = "n"
+)
+
+axis(side = 1, at = 1:4)
+```
+
+## Part (b)
+By applying Equation 12.10 directly. That is, use the `prcomp()` function
+to compute the principal component loadings. Then, use those loadings in
+Equation 12.10 to obtain the PVE.
+
+```{r}
+x <- as.matrix(scale(USArrests))
+
+pve2 <- sapply(1:4, function(i) {
+  pc <- pr$rotation[, i]
+  denom <- sum(sapply(1:n, function(i) (x[i, ] %*% pc)^2))
+  numer <- sum(x^2)
+  return(denom / numer)
+})
+
+names(pve2) <- paste0("PC", 1:4)
+```
+
+The results are virtually identical.
+
+```{r}
+pve
+pve2
+```
+
+

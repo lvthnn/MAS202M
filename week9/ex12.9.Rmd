@@ -1,0 +1,78 @@
+---
+title: Exercise 12.9
+date: April 2024
+output: html_document
+author: Kári Hlynsson
+---
+
+Consider the `USArrests` data. We will now perform hierarchical clustering on
+the states.
+
+## Part (a)
+Using hierarchical clustering with complete linkage and Euclidean distance,
+cluster the states.
+
+```{r}
+library(ISLR2)
+data(USArrests)
+
+hclust_unsc <- hclust(dist(USArrests), method = "complete")
+```
+
+Let's take a look.
+
+```{r}
+plot(hclust_unsc, main = "Hierarchical clustering (unscaled)",
+     xlab = "State")
+abline(h = 150, lty = 2, col = "red")
+```
+
+## Part (b)
+Cut the dendogram at a height that results in three distinct clusters. Which
+states belong to which clusters?
+
+```{r}
+clusters_unsc <- cutree(hclust_unsc, 3)
+
+clusters_unsc
+table(clusters_unsc)
+```
+
+## Part (c)
+Hierarchically cluster the states using complete linkage and Euclidean
+distance, *after scaling the variables to have standard deviation one*.
+
+```{r}
+xsc <- scale(USArrests)
+
+hclust_sc <- hclust(dist(xsc), method = "complete")
+
+plot(hclust_sc, main = "Hierarchical clustering (scaled)")
+abline(h = 4, lty = 2, col = "red")
+```
+
+Let's take a look at how the cluster groups look like:
+
+```{r}
+clusters_sc <- cutree(hclust_sc, 4)
+
+clusters_sc
+table(clusters_sc)
+```
+
+## Part (d)
+What effect does scaling the variales have on the hierarchical clustering
+obtained? In your opinion, should the variables be scaled before the
+inter-observation dissimilarities are computed? Provide a justification for
+your answer.
+
+We see that the dendrogram for the scaled variables is more balanced in the
+sense that we have four large subtrees, instead of the three produced by the
+unscaled response. It remains to be answered whether the data would suggest
+a clustering into 3 or 4 states -- perhaps they are related by geography,
+political tendencies etc. I would likely prefer to scale the data, but I would
+need to look at how the groups change and whether there is any structure in
+either of the two clusterings produced.
+
+It would be interesting to plot the clusters on a map of the USA to see whether
+we see any discernible patterns in the clustering.
