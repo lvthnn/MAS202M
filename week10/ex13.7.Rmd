@@ -15,52 +15,138 @@ each model of the form \(Y = \beta_0 + \beta_1 X + \epsilon\), report the
 \(p\)-value associated with the coefficient \(\beta_1\). Here, \(Y\) represents
 `Sales` and \(X\) represents one of the other quantitative variables.
 
+### Solution.
+We start by importing the `Carseats` data set and selecting the quantitative
+predictors which are stored in the variable `vars`:
+
 ```{r}
 library(ISLR2)
 data(Carseats)
+
+vars <- names(
+  which(sapply(Carseats, is.numeric) & names(Carseats) != "Sales")
+) |> sort()
 ```
 
-Fit the models and obtain the \(p\)-values:
+Now we fit a series of simple linear models 
+\(\mathcal M_1, \ldots, \mathcal M_p\) of `Sales` (\(Y\)) against each of the
+quantitative covariates \(X_1, \ldots, X_p\) contained in `vars`. In other
+words, we fit the series of models
+\begin{align*}
+  \mathcal M_1: Y &= \beta_{01} + \beta_{11} X_1 + \epsilon \\
+  &\vdots \\
+  \mathcal M_p: Y &= \beta_{0p} + \beta_{1p} X_p + \epsilon,
+\end{align*}
+and investigate the value of the Wald test statistic \(p_j\)
+associated with the effect size \(\beta_{1j}\) in model \(\mathcal M_j\),
+each of which corresponds to a hypotheses test of the form
+\[
+  H_0: \beta_{1j} = 0, \quad H_1: \beta_{1j} \neq 0.
+\]
+The later parts of this exercise will revolve around different methods for
+controlling Type I error in light of multiple testing. Recover the \(p\)-values:
 
 ```{r}
-vars <- c("CompPrice", "Income", "Advertising", "Population", "Price",
-          "Age", "Education")
-
 pvals <- sapply(vars, function(var) {
   fit <- lm(as.formula(paste0("Sales ~ ", var)), data = Carseats)
   pval <- summary(fit)$coefficients[2, 4]
   return(pval)
 })
+
+pvals
+```
+
+Notice that the \(p\)-values for predictors `Advertising`, `Age`, `Income` and
+`Price` are markedly small compared to the other values. This is reinforced by
+the visualisation of the various predictors against `Sales`. Indeed, in the
+case of the four variables, there is seemingly some discernible linearity in 
+the data.
+
+```{r}
+par(mfrow = c(2, 4))
+for (var in vars) {
+  plot(Carseats[[var]], Carseats[["Sales"]], xlab = paste(var), ylab = "Sales")
+  abline(lm(Carseats[["Sales"]] ~ Carseats[[var]]),
+    lwd = 2, col = "red"
+  )
+  abline(h = mean(Carseats[["Sales"]]), lty = 2, col = "red")
+}
 ```
 
 ## Part (b)
 Suppose we control the Type I error at level \(\alpha = 0.05\) for the
 \(p\)-values obtained in (a). Which null hypotheses do we reject?
 
+### Solution.
+This is the simple case where in a manner analogous to single hypothesis
+testing we simply determine whether \(p_j < \alpha\) sequentially irrespective
+of the number of tests performed. If \(p_j < \alpha\) we reject the null
+hypothesis \(H_0\) in model \(\mathcal M_j\) in favour of the claim that
+\(\beta_{1j} \neq 0\), i.e. that the effect size of the \(j\)th covariate
+in a simple linear model is distinct from zero.
+
+Doing this in `R` amounts to simply filtering the `pvals` vector for values
+below \(\alpha = 0.05\):
+
 ```{r}
 names(which(pvals < 0.05))
 ```
 
-`Income`, `Advertising`, `Price` and `Age`.
+The significant tests are for the predictors `Advertising`, `Age`, `Income` 
+and `Price`. (Compare with output in part (a).)
 
 ## Part (c)
 Now suppose we control the FWER at level 0.05 for the \(p\)-values. Which null
 hypotheses do we reject?
 
+### Solution.
+We will employ two methods that are popular for controlling the FWER, namely
+the Bonferroni correction and the Holm Step-Down method, both of which are
+described in detail in Chapter 13. Start by making the adjustments to `pvals`:
+
+```{r}
+p_bonf <- p.adjust(pvals, method = "bonferroni")
+p_bonf
+
+p_holm <- p.adjust(pvals, method = "holm")
+p_holm
+```
+
+Indeed, we see that the \(p\)-values for the four significant covariates from
+(b) remain significant.
+
 ```{r}
 # Bonferroni
-names(which(p.adjust(pvals, method = "bonferroni") < 0.05))
+names(which(p_bonf < 0.05))
 
 # Holm
-names(which(p.adjust(pvals, method = "holm") < 0.05))
+names(which(p_holm < 0.05))
 ```
 
 ## Part (d)
 Finally, suppose we control the FDR at level 0.2 for the \(p\)-values. Which
 null hypotheses do we reject?
 
+### Solution.
+Lastly we employ methods to control the false discovery rate, or FDR. One
+way with which we can do this is using the Benjamini-Hochberg procedure,
+which is designated as `bh` or `fdr` in the `method` variable in the 
+`p.adjust()` function.
+
 ```{r}
-names(which(p.adjust(pvals, method = "fdr") < 0.2))
+# Benjamini-Hochberg
+p_bh <- p.adjust(pvals, method = "fdr")
+p_bh
 ```
 
-Always the same variables, namely `Income`, `Advertising`, `Price` and `Age`.
+Let's see which of the predictors are significant using the Benjamini-Hochberg
+adjusted \(p\)-values:
+
+```{r}
+names(which(p_bh < 0.2))
+```
+
+The results are not very novel. The same four predictors, namely `Advertising`,
+`Age`, `Income` and `Price` are claimed to have significantly non-zero effect
+sizes.
+

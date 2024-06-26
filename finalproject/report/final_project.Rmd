@@ -1,0 +1,947 @@
+---
+title: Final Project
+author: Kári Hlynsson
+date: April 2024
+output: html_document
+---
+
+```{r include = FALSE}
+library(dplyr)
+library(pbapply)
+library(scales)
+library(latex2exp)
+library(randomForest)
+library(glmnet)
+library(e1071)
+library(class)
+library(ROCR)
+source("pair_plot.R")
+
+plot_roc_curve_rocr <- function(predictions, truth, title) {
+  pred <- prediction(predictions, truth)
+  perf <- performance(pred, "tpr", "fpr")
+
+  plot(
+    perf,
+    main = title,
+    xlab = "False Positive",
+    ylab = "True Positive"
+  )
+
+  abline(a = 0, b = 1, lwd = 2, lty = 2)
+
+  auc <- performance(pred, measure = "auc")
+  auc_value <- auc@y.values[[1]]
+  cat("AUC: ", auc_value, "\n")
+
+  return(list(roc = perf, auc = auc_value))
+}
+
+islrblue <- "#3333b2"
+islrred <- "#990000"
+islrgreen <- "#009900"
+```
+
+## Part 1: Data Cleaning / Clustering (30%)
+For this section, we will use the `MAS202M_s24_synthetic_data_20240321.csv`,
+which is a synthetic data set.
+
+1. Prepare the provided data set (or another data set of your choice) for 
+further analysis. Using the tools at your disposal for data cleaning, prepare 
+the data set to maximize the expected performance of a clustering algorithm 
+trained on the data set. Note the steps taken, whether or not they result in 
+modifications to the data set. 
+
+2. Build a model to cluster the data set. Describe the resulting model and its
+performance, i.e., how well the clusters fit the data. 
+
+### Solution
+
+#### 1. Data cleaning
+
+Start by reading in the data set:
+
+```{r 11_import_data}
+synthetic_dat <- read.table(
+  "MAS202M_s24_synthetic_data_20240321.csv",
+  sep = ",",
+  head = TRUE
+)
+```
+
+Summary of the data:
+
+```{r 11_data_summary}
+summary(synthetic_dat)
+```
+
+The data contains some `NA` measurements. We will have to address this and a
+couple of other issues before we can move on to the clustering step. It would
+be wise to start with a pair plot of the variables in the data to get a feel
+for the terrain:
+
+```{r 11_pair_plot}
+pair_plot(synthetic_dat[, -2])
+```
+
+The `id` variable is an index of the data which is redundant 
+information and can be removed. Make the change:
+
+```{r 11_drop_index}
+synthetic_dat <- synthetic_dat[, -1]
+```
+
+More interestingly, we see that covariates
+`col3` and `col6` correspond perfectly to each other -- that is, we have total
+collinearity. Let us investigate this matter further:
+
+```{r 11_shenanigans}
+synthetic_dat$col3 == synthetic_dat$col6
+```
+
+From this obnoxiously large block of output we see that the predictors are the
+exact same except at some `NA` values. What might we infer about the predictors
+at these points?
+
+```{r 11_tomfoolery}
+synthetic_dat |> filter(is.na(col3) | is.na(col6))
+```
+
+The data seem to be exclusively missing -- that is, when `col3` is missing,
+`col 6` is not, and they are otherwise identical. This leads me to believe that
+the two columns are actually one and the same but have somehow been split across
+the data set (space and time, if you will). Therefore we will merge these two
+columns and throw `col6` away:
+
+```{r 11_drop_col6}
+synthetic_dat <- synthetic_dat |>
+  mutate(col3 = ifelse(is.na(col3), col6, col3)) |>
+  select(-col6)
+```
+
+For convenience and legibility, reorder observations in increasing order of
+`id` and reindex the row names:
+
+```{r 11_reorder_data}
+ord <- gsub("sample", "", synthetic_dat$id) |>
+  as.numeric() |>
+  order()
+
+synthetic_dat <- synthetic_dat[ord, ]
+
+rownames(synthetic_dat) <- 1:nrow(synthetic_dat)
+```
+
+Quite interestingly, looking at the `tail()` of these data show that a handful
+observations seem to be missing `id`s, but are otherwise perfectly intact. We
+will address this at a later time.
+
+```{r 11_data_tail}
+synthetic_dat |> tail(10)
+```
+
+Now we move on to cleaning duplicates and missing values from the data. Start
+with the former:
+
+```{r 11_dup_obs}
+dup <- duplicated(synthetic_dat)
+sum(dup)
+```
+
+A total of 97 observations are total duplicates of others. Let's remove these
+from the data set. We will call the resulting output `synthetic` instead of
+`synthetic_dat` to signify the cleaned data set:
+
+```{r 11_remove_dup}
+synthetic <- synthetic_dat |> distinct(.keep_all = TRUE)
+```
+
+Other duplicates are a bit more well disguised, but we start with those that
+share the same `id`s and *almost* the same measurements of `col1` through
+`col6` but contain `NA` measurements in one of the predictors:
+
+```{r}
+dup_ids <- which(duplicated(synthetic$id))
+
+dup_ids_tmp <- synthetic[c(dup_ids, dup_ids - 1), ] |>
+  arrange(id) |>
+  filter(id != "")
+
+dup_ids_tmp
+```
+
+Which rows do we want to drop?
+
+```{r}
+dup_ids_drop <- which((rowSums(apply(dup_ids_tmp, 2, is.na)) == TRUE)) |>
+  names() |>
+  as.numeric()
+
+dup_ids_drop
+```
+
+We also have one sneaky duplicate which is missing an `id` but is otherwise
+identical to another observation:
+
+```{r}
+dup_id_na <- duplicated(synthetic[, 2:6]) |> which()
+synthetic |> filter(col1 == synthetic[dup_id_na, 2])
+```
+
+Remove the observations:
+
+```{r}
+synthetic <- synthetic[-dup_ids_drop, ] # 2 dropped (NA-identical)
+synthetic <- synthetic[-dup_id_na, ] # drop identical obs. with no ID
+```
+
+Now that we have removed all duplicates from the data set, we can remove the
+`id` column since it no longer contains any useful information.
+
+```{r}
+synthetic <- synthetic |> select(-id)
+```
+
+Let us finally impute the missing values in the data set. We can take a look
+at how much of the data set they make up:
+
+```{r}
+is.na(synthetic) |> colMeans()
+```
+
+This is hardly worth worrying over. We could in fact simply remove these
+observations from the data set, but we will impute them instead using the
+mean of their missing covariates since they still contain some information.
+
+```{r}
+synthetic <- synthetic |> mutate(
+  across(col1:col5, function(c) ifelse(is.na(c), mean(c, na.rm = TRUE), c))
+)
+```
+
+Let's finish with a pair plot of the cleaned data set:
+
+```{r}
+pair_plot(synthetic)
+```
+
+And a summary for good luck:
+
+```{r}
+summary(synthetic)
+```
+
+Everything seems to be in order.
+
+#### 2. Clustering
+
+We will explore two clustering methods, namely hierarchical clustering and
+K-means. We will also scale and transform the data in various ways and
+compare the results of clustering with the respective transformed data sets.
+
+Firstly, we transform the data using PCA to see whether dimensionality
+reduction is possible and whether some discernible clustering pattern arises
+when viewing the first two principal components.
+
+Start by computing the PCA and the PVE of the various principal components.
+We will do this on standardised data, since the spread and centre of the data
+vary a bit across columns.
+
+```{r}
+pr_out <- prcomp(synthetic, scale = TRUE)
+
+pr_var <- pr_out$sdev^2
+pve <- pr_var / sum(pr_var)
+```
+
+These can be used to generate a biplot and a scree plot:
+
+```{r}
+biplot(
+  pr_out,
+  scale = 0,
+  col = c(alpha(4, 0.25), 4),
+  cex = c(0.5, 1.25)
+)
+abline(h = 0, lty = 2, col = "#cccccc")
+abline(v = 0, lty = 2, col = "#cccccc")
+
+par(mfrow = c(1, 2))
+plot(
+  pve,
+  type = "b",
+  xlab = "Principal Component",
+  ylab = "PVE",
+  ylim = c(0, 1)
+)
+
+plot(
+  cumsum(pve),
+  type = "b",
+  xlab = "Princap Component",
+  ylab = "Cumulative PVE",
+  ylim = c(0, 1)
+)
+```
+
+The biplot shows a cluster pattern separated mainly by the first principal
+component. Perhaps this is the key to obtaining a sensible clustering of the
+data. From the scree plots we also see that the first two components account
+for roughly 60% of the variation in the data, which is quite substantial. It
+would thus be sensible to consider these two axes when clustering the data.
+
+Hierarchical clustering is performed on the data below for the raw, scaled
+and PCA-transformed data. These have all been tinkered with to obtain the
+(subjectively) most pleasing results.
+
+```{r}
+# Hierarchical clustering - Out of the box
+hclust <- hclust(dist(synthetic), method = "average")
+plot(hclust, main = "Raw data, average", labels = FALSE, sub = NA, xlab = NA)
+
+# Pair plot of clustering
+hclust_out <- cutree(hclust, 2)
+
+pair_plot(synthetic, col = hclust_out + 2, cex = 0.2)
+
+# Hierarchical clustering -- Scaled
+hclust_sc <- hclust(dist(scale(synthetic)), method = "complete")
+plot(hclust_sc,
+  main = "Scaled data, complete", labels = FALSE, sub = NA,
+  xlab = NA
+)
+
+# Pair plot of clustering
+hclust_sc_out <- cutree(hclust_sc, 2)
+
+pair_plot(synthetic, col = hclust_sc_out + 2, cex = 0.2)
+
+# Hierarchical clustering -- PC1 & PC2
+hclust_pca <- hclust(dist(pr_out$x[, 1:2]), method = "complete")
+plot(hclust_pca,
+  main = "PCA data, complete", labels = FALSE, sub = NA,
+  xlab = NA
+)
+
+# Pair plot of clustering
+hclust_pca_out <- cutree(hclust_pca, 2)
+
+pair_plot(synthetic, col = hclust_pca_out + 2, cex = 0.2)
+
+# Plot of PC1 & PC2 and clustering
+plot(pr_out$x[, 1], pr_out$x[, 2],
+  col = hclust_pca_out + 2, pch = 20,
+  xlab = "PC1", ylab = "PC2"
+)
+```
+
+Hierarchical clustering seems to yield the most sane results on the raw 
+data with completed linkage. The clustering on the first two principal
+components seems to violate our expectations a bit -- let's see whether this
+issue is less prominent with K-means.
+
+```{r}
+# K Means -- Out of the box performance
+kmeans <- kmeans(synthetic, centers = 2, nstart = 50)
+kmeans$cluster <- ifelse(kmeans$cluster == 1, 2, 1)
+pair_plot(synthetic, col = kmeans$cluster + 2, cex = 0.2)
+
+# K Means -- Scaled data
+kmeans_sc <- kmeans(scale(synthetic), centers = 2, nstart = 50)
+kmeans_sc$cluster <- ifelse(kmeans_sc$cluster == 1, 2, 1)
+pair_plot(synthetic, col = kmeans_sc$cluster + 2, cex = 0.2)
+
+# K Means -- PC1 & PC2
+kmeans_pr <- kmeans(pr_out$x[, 1:2], centers = 2, nstart = 50)
+kmeans_pr$cluster <- ifelse(kmeans_pr$cluster == 1, 2, 1)
+pair_plot(synthetic, col = kmeans_pr$cluster + 2, cex = 0.2)
+
+# Plot of PC1 & PC2 and clustering
+plot(pr_out$x[, 1], pr_out$x[, 2],
+  col = kmeans_pr$cluster + 2, pch = 20,
+  xlab = "PC1", ylab = "PC2"
+)
+```
+
+K-means looks fantastic on the first two principal components and is very
+much in line with what one would expect of the data. 
+
+## Part 2: Prediction / Inference (70%)
+
+For this section, we provide a data set derived from proteomics measurements 
+performed by Marie-Pierre Dube. The file `proteomics_dube_2023.csv` contains 
+plasma protein levels for 1,462 proteins (columns) for 40 samples (rows); 
+10 subjects, each measured at two acclimation stages and in two thermal states.
+
+1. Pick a quantitative variable in the data set. Build a prediction model for 
+the variable using two different methods. At least one of the prediction models
+should be able to handle non-linear relationships between dimensions. Tune the
+parameters of each model and compare their performances. discuss the outcome,
+including the strengths and weaknesses of each type of model relative to the 
+data set in question. what (if anything) can you infer about the structure of 
+the data from the models?
+
+2. Pick a categorical variable in the data set (or create one by thresholding 
+a continuous variable). Build a classifier for the variable using two different
+methods. At least one of the classifiers should be able to fit non-linear 
+decision boundaries. Tune the parameters of each classifier and compare their 
+performances. Discuss the outcome, including the strengths and weaknesses of 
+each type of classifier relative to the data set in question. What 
+(if anything) can you infer about the structure of the data from the models?
+
+
+## Solution
+
+### 1. Quantitative variable
+
+I will investigate the `EHBP1` variable. We start by importing the data set.
+The `SubjectID` column is removed since it does not have any relevance in the
+analyses we are about to perform.
+
+```{r 2_data_in}
+# read in the data set
+dube <- read.csv("proteomics_dube_2023.csv", stringsAsFactors = TRUE)[, -1]
+n <- nrow(dube)
+p <- ncol(dube)
+```
+
+We will use both cross-validation during the fitting process, but we also want
+to have a measure of how well our models perform on unseen data. Thus we must
+perform a train-test split:
+
+```{r 2a_data_split}
+# set RNG seed for reproducibility
+set.seed(42)
+
+# perform train-test split
+prop_test <- 0.75
+s <- sample(1:n, 0.75 * n)
+train <- dube[s, ]
+test <- dube[setdiff(1:n, s), ]
+```
+
+For the first variable, `EHBP1`, we will employ two methods: LASSO and random
+forests. We start with the former.
+
+#### LASSO
+
+We fit LASSO to the training data using the `cv.glmnet` command, which performs
+\(k\)-fold cross-validation in order to determine the optimal value of the
+regularisation parameter, \(\lambda\). We will perform LOOCV, as shown below:
+
+```{r 2a_LASSO_fit, warning = FALSE}
+# arrange the data into model matrix format so it is suitable for cv.glmnet
+x_train <- model.matrix(EHBP1 ~ ., data = train)[, -1]
+x_test <- model.matrix(EHBP1 ~ ., data = test)[, -1]
+y_train <- train[, "EHBP1"]
+y_test <- test[, "EHBP1"]
+
+# perform the cross-validation
+cv_lasso <- cv.glmnet(
+  x_train,
+  y_train,
+  nfolds = 30,
+  thresh = 1e-12
+)
+
+# select the optimal regularisation parameter
+lambda_opt <- cv_lasso$lambda.min
+```
+
+The optimal parameter is \(\lambda = `r lambda_opt`\).
+
+```{r 2a_LASSO_plot}
+# generate a plot of model coefficients as a fn. of regularisation param.
+# and the LOOCV error as a fn. of
+par(mfrow = c(1, 2))
+plot(
+  log(cv_lasso$lambda),
+  cv_lasso$cvm,
+  type = "l",
+  xlab = expression(log(lambda)),
+  ylab = "LOOCV error",
+  ylim = c(0, 1)
+)
+
+lines(log(cv_lasso$lambda), cv_lasso$cvup, lty = 2)
+lines(log(cv_lasso$lambda), cv_lasso$cvlo, lty = 2)
+abline(v = log(lambda_opt), lty = 2)
+
+plot(
+  cv_lasso$glmnet.fit,
+  "lambda",
+  xlab = expression(lambda),
+  ylab = "Coefficients"
+)
+
+abline(v = log(lambda_opt), lty = 2)
+```
+
+Let us take a look at the coefficients yielded by using the optimal 
+\(\lambda\):
+
+```{r}
+# find and plot non-zero model coefficients
+coefs_lasso <- predict(cv_lasso, s = lambda_opt, type = "coefficients")
+coefs_lasso_nz <- coefs_lasso[coefs_lasso[, 1] != 0, ]
+
+coefs_lasso_nz |>
+  sort(decreasing = TRUE) |>
+  barplot(names.arg = names(coefs_lasso_nz), cex.names = 0.75, col = NA)
+```
+
+The LASSO model reduces the amount of covariates involved in 
+predicting the response from 1463 down to 8, excluding the intercept. One of 
+the advantages of using LASSO is its capability to shrink coefficient estimates
+to zero using the regularisation term in its cost function which is of the form
+\(\lambda\sum_{j = 1}^p |\beta_j|\), where \(\beta_j\) is the effect size for 
+the \(j\)th covariate. Thus it is a reasonable choice given the high
+dimensional setting posed by the data considered. However, using this model 
+assumes a linear relationship between the causal covariates and the response,
+which may be overly stringent.
+
+In light of this, let us measure the performance of the optimal model:
+
+```{r}
+# lasso test set mse
+lasso_pred <- predict(cv_lasso, s = lambda_opt, newx = x_test)
+mse_lasso <- mean((lasso_pred - y_test)^2)
+mse_lasso
+```
+
+The MSE is \(`r mse_lasso`\), which is not bad at all. The fit can also be
+shown visually as below:
+
+```{r}
+# identity plot of data vs. predictions
+plot(
+  lasso_pred,
+  y_test,
+  xlab = "Predicted response",
+  ylab = "Observed repsonse"
+)
+abline(a = 0, b = 1, lty = 2)
+```
+
+The model tends to overshoot a bit in the left extreme. It is interesting to
+view the non-zero covariates on a pair plot with our reponse to see whether
+there is any discernible relationship:
+
+```{r}
+# pair plot of non-zero coefficients with response
+names_lasso <- c("EHBP1", names(coefs_lasso_nz)[-1])
+pair_plot(dube[, names_lasso], cex = 0.2)
+```
+
+The `EHBP1` column shows quite strong linear relationships between the
+covariates and the response, which we can also see by viewing the row which
+`EHBP1` belongs to. There is also a very strong correlation between the
+covariates themselves, which may suggest that these proteins might be linked in
+some way, such as coming from the same amino-acid sequences but undergoing
+post-translational modifications to assume different functionalities. However,
+a lot more testing would have to take place until one could be sure.
+
+#### Random forest
+
+Now let us try using a random forest model to describe the relationship. The
+optimal value of `mtry` is first determined by measuring the test MSE of the
+fitted models at each turn:
+
+```{r message = FALSE}
+# fit and tune a random forest regressor
+mtry <- c(seq(10, p - 1, by = 100)) |> sort()
+
+rf_fits <- pblapply(mtry, function(mt) {
+  rf_fit <- randomForest(
+    EHBP1 ~ .,
+    data = train,
+    xtest = x_test |> data.frame(),
+    ytest = y_test,
+    mtry = mt,
+    ntree = 500,
+    importance = TRUE
+  )
+})
+
+rf_perf <- pblapply(rf_fits, function(fit) {
+  list(mse = fit$test$mse, balanced = fit$test$mse[500])
+})
+```
+
+The `rf_fits` list contains the fitted models whereas `rf_perf` contains the
+performances. `rf_perf` consists of two atomic vectors, `mse` and `balanced`,
+where the first gives the CV error for different tree sizes, whereas the
+latter gives the CV error at `ntree` = 500.
+
+The best model is found and the CV error is plotted as a function of tree size:
+
+```{r}
+# find and plot best model
+best_model <- sapply(rf_perf, function(i) i$balanced) |> which.min()
+
+plot(
+  1,
+  type = "n",
+  xlab = "Number of trees",
+  ylab = "Test set MSE",
+  xlim = c(1, 500),
+  ylim = c(0, 1)
+)
+
+for (i in 1:length(rf_perf)) {
+  if (i != best_model) {
+    lines(
+      rf_perf[[i]]$mse,
+      col = ifelse(best_model == i, "red", alpha("black", 0.25)),
+      lwd = ifelse(best_model == i, 3.0, 1.0),
+      type = "l"
+    )
+  }
+}
+
+lines(rf_perf[[best_model]]$mse,
+  lwd = 4,
+  col = 4,
+  type = "l",
+  ylim = range(rf_perf),
+  xlab = "No. trees",
+  ylab = "CV error"
+)
+
+
+legend(
+  "topright",
+  inset = c(0.01, 0.01),
+  bty = "n",
+  legend = c(paste0("mtry = ", mtry[[best_model]])),
+  col = 4,
+  lwd = 3.5
+)
+```
+
+The value of `mtry` which minimises the CV error turns out to be 
+`r mtry[[best_model]]`. Shown below are variable importance plots for
+the predictors involved in the random forest model, some of which we recognise
+from out fitting of the lasso model:
+
+```{r}
+# variable importance plot
+varImpPlot(rf_fits[[best_model]], main = NA)
+
+# get 30 highest scoring predictors in terms of purity and mse
+inc_pur <- importance(rf_fits[[best_model]]) |>
+  data.frame() |>
+  arrange(IncNodePurity) |>
+  tail(30) |>
+  rownames()
+
+inc_mse <- importance(rf_fits[[best_model]]) |>
+  data.frame() |>
+  arrange(X.IncMSE) |>
+  tail(30) |>
+  rownames()
+```
+
+As before we can visually validate the relationships that are specified by the
+random forest model. I will show some pair plots for a subsets of the variables
+in `inc_mse` for brevity:
+
+```{r}
+# pair plot of a sample of importance predictors in random forest
+pair_plot(dube[, c("EHBP1", inc_mse |> sample(8))], cex = 0.2)
+```
+
+The result is quite interesting. Few if not none of these variables held any 
+weight in the LASSO regression, but many of them seem to be quite strongly 
+linearly correlated with the response, as is evidenced by the plot produced 
+above. One of the benefits of random forest is its capacity to work in a
+high-dimensional such as the one consider here where \(n \ll p\). It is a
+powerful method due to its capacity to model non-linear boundaries but
+provides robust predictive capabilities since it decorrelates the decision
+trees used to form the ensemble vote by both bootstrapping the training data
+set and picking a subset of predictors that are considered when constructing
+new trees. Here we see that it is able to pick up on effects from covariates
+that would go unnoticed in a traditional regularised linear regression such as
+when using Ridge or LASSO, which may be very useful when doing a broad sweep of
+the data when one is searching for potential biomarkers and mostly focused on
+pruning the data.
+
+How does the random forest model perform on the test data set?
+
+```{r}
+rf_fits[[best_model]]$test$mse[500]
+```
+
+Random forest regression performs similarly to the LASSO model we considered
+above.
+
+```{r}
+plot(
+  rf_fits[[best_model]]$test$predicted,
+  y_test,
+  xlab = "Predicted response",
+  ylab = "Observed response"
+)
+abline(a = 0, b = 1, lty = 2)
+```
+
+It looks good, but tends to overshoot at the left extreme, similarly as we
+saw in the LASSO model.
+
+### 2. Categorical variable
+
+We will investigate the categorical variable `temp` to see if any protein
+measurements along with the acclimation state can be used to meaningfully
+predict whether an individual is of normal body temperature (*normothermic*)
+or whether he is hot (*hyperthermic*).
+
+In order to reduce the number of involved covariates we will transform the
+data using PCA:
+
+```{r}
+# calculate PCA and create scree plot
+pr_out <- prcomp(dube[, 3:p], scale = TRUE)
+
+pr_var <- pr_out$sdev^2
+pve <- pr_var / sum(pr_var)
+
+par(mfrow = c(1, 2))
+plot(
+  pve,
+  xlab = "Number of Principal Components",
+  ylab = "PVE",
+  type = "b"
+)
+abline(v = 15, lty = 2, col = "red")
+plot(
+  cumsum(pve),
+  xlab = "Number of Principal Components",
+  ylab = "Cumulative PVE",
+  type = "b"
+)
+abline(v = 15, lty = 2, col = "red")
+```
+
+This is beneficial in reducing the computation time many of the model fittings
+done here below, while also retaining a lot of the variability in the original
+data set. From the scree plot and after some tinkering around with results I 
+determined that 15 principal components would be suitable for fitting the 
+models.
+
+Let us now generate a train-test split of the PCA-transformed data, this time
+a 50% split.
+
+```{r}
+# train test split for classifiers
+set.seed(30)
+s <- sample(1:n, 0.5 * n, replace = FALSE)
+dube_pr <- cbind(dube[, 1:2], pr_out$x[, 1:15])
+train_pr <- dube_pr[s, ]
+test_pr <- dube_pr[setdiff(1:n, s), ]
+```
+
+#### SVM
+
+In this step we will fit SVMs with different kernels and optimise for each
+of the possible parameters. SVMs are powerful in the high dimensional setting
+since fitting a \(p - 1\) hyperplane to separate the data relies and have the
+desirable quality of mapping high-dimensional data to dimensions of lower
+dimension while retaining the information, often in such a way that a linear
+decision boundary can be identified. However, they can be very difficult to
+interpret.
+
+We start with the linear kernel, or in other words a support vector classifier,
+where the optimisation is over the parameter `cost`:
+
+```{r}
+# fit SVC
+svm_fit_pr_lin <- tune(
+  svm,
+  temp ~ .,
+  data = train_pr,
+  kernel = "linear",
+  ranges = list(
+    cost = 10^seq(-3, 3, length.out = 20)
+  )
+)
+
+lin_perf <- svm_fit_pr_lin$best.performance
+lin_param <- svm_fit_pr_lin$best.parameters
+lin_pred <- predict(svm_fit_pr_lin$best.model, train_pr)
+
+lin_perf
+lin_param
+
+plot_roc_curve_rocr(
+  as.numeric(lin_pred) - 1,
+  as.numeric(test_pr$temp) - 1,
+  "SVC ROC curve"
+)
+```
+
+The optimal performance is `r lin_perf` with `cost` \(= `r lin_param$cost`\).
+Let's evaluate this model on the test set:
+
+```{r}
+# SVC performance
+svm_lin_opt <- summary(svm_fit_pr_lin)$best.model
+svm_lin_pred <- predict(svm_lin_opt, test_pr)
+lin_cfmat <- table(svm_lin_pred, test_pr$temp)
+lin_cfmat
+```
+
+The SVC correctly identifies observations in the test set in
+\(`r (lin_cfmat[1, 1] + lin_cfmat[2, 2]) / sum(lin_cfmat) * 100`\%\) of cases.
+
+Next we consider a SVM with a polynomial kernel, which is optimised over the
+parameters `cost` and `degree`:
+
+```{r}
+# Polynomial kernel SVM
+svm_fit_pr_poly <- tune(
+  svm,
+  temp ~ .,
+  data = train_pr,
+  kernel = "polynomial",
+  ranges = list(
+    cost = 10^seq(-3, 3, length.out = 20),
+    degree = 1:8
+  )
+)
+
+poly_perf <- svm_fit_pr_poly$best.performance
+poly_param <- svm_fit_pr_poly$best.parameters
+poly_pred <- predict(svm_fit_pr_poly$best.model, test_pr)
+
+plot_roc_curve_rocr(
+  as.numeric(poly_pred) - 1,
+  as.numeric(test_pr$temp) - 1,
+  "SVM polynomial kernel ROC curve"
+)
+```
+
+The optimal performance is `r poly_perf` with the parameters
+`cost` \(= `r poly_param$cost`\) and `degree` \(= `r poly_param$degree`\).
+It is interesting to note that the kernel specified is in some sense similar
+to a linear kernel since the degree of the polynomial involved is of degree one.
+Model performance on the test set is evaluated below:
+
+```{r}
+# Polynomial kernel SVM performance
+svm_poly_opt <- summary(svm_fit_pr_poly)$best.model
+svm_poly_pred <- predict(svm_poly_opt, test_pr)
+poly_cfmat <- table(svm_poly_pred, test_pr$temp)
+poly_cfmat
+```
+
+The SVM with a polynomial kernel identifies test set classes in
+\(`r (poly_cfmat[1, 1] + poly_cfmat[2, 2]) / sum(poly_cfmat) * 100`\%\) of
+cases.
+
+Lastly we consider a radial kernel, where we optimise over parameters `cost`
+and `gamma` (\(\gamma\)).
+
+```{r}
+# Radial kernel SVM
+svm_fit_pr_radial <- tune(
+  svm,
+  temp ~ .,
+  data = train_pr,
+  kernel = "radial",
+  ranges = list(
+    gamma = 10^seq(-3, 2, length.out = 20),
+    cost = 10^seq(-3, 3, length.out = 20)
+  )
+)
+
+radial_perf <- svm_fit_pr_radial$best.performance
+radial_params <- svm_fit_pr_radial$best.parameters
+radial_pred <- predict(svm_fit_pr_radial$best.model, test_pr)
+
+plot_roc_curve_rocr(
+  as.numeric(radial_pred) - 1,
+  as.numeric(test_pr$temp) - 1,
+  "SVM radial kernel ROC curve"
+)
+```
+
+The best performance is \(`r radial_perf`\) with parameters `cost` 
+\(= `r radial_params$cost`\) and \(\gamma = `r radial_params$gamma`\).
+Let's take a look at prediction accuracy:
+
+```{r}
+# Radial kernel SVM performance
+svm_radial_opt <- summary(svm_fit_pr_radial)$best.model
+svm_radial_pred <- predict(svm_radial_opt, test_pr)
+radial_cfmat <- table(svm_radial_pred, test_pr$temp)
+radial_cfmat
+```
+
+The SVM with a radial kernel identifies test set classes in
+\(`r (radial_cfmat[1, 1] + radial_cfmat[2, 2]) / sum(radial_cfmat) * 100`\%\) of
+cases.
+
+We have thus seen that using SVM, we obtain a maximum accuracy of \(70\%\) with
+the linear and radial kernel.
+
+#### KNN
+
+We will finish this project by considering KNN as a classifier. This powerful
+method has been known to suffer from some problems when employed in a 
+high-dimensional setting, but we will see that this is not the case for these 
+data. Tuning the model is a simple matter:
+
+```{r}
+# KNN
+knn_tune <- tune.knn(
+  train_pr[, -c(1, 2)],
+  train_pr[, 1],
+  k = 1:16,
+  tunecontrol = tune.control(
+    nrepeat = 10,
+    cross = 5
+  )
+)
+
+knn_perf <- knn_tune$best.performance
+knn_param <- knn_tune$best.parameters
+```
+
+The best performance from the tuning process is `r knn_perf` with \(k = 
+`r knn_param$k`\).
+
+Produce a plot of the CV error as a function of \(k\):
+
+```{r}
+# plot of CV error as a fn. of K
+plot(knn_tune$performances$k, knn_tune$performances$error,
+  type = "b",
+  xlab = "K", ylab = "CV error"
+)
+```
+
+We will now access the optimal model and measure performance on the test set:
+
+```{r}
+# Optimal KNN model
+knn_opt <- knn(train_pr[, -c(1, 2)], test_pr[, -c(1, 2)], train_pr[, 1], k = 9)
+knn_cfmat <- table(knn_opt, test_pr$temp)
+knn_cfmat
+```
+
+Produce a ROC curve of KNN:
+
+```{r}
+# ROC curve for KNN
+plot_roc_curve_rocr(
+  as.numeric(knn_opt) - 1,
+  as.numeric(test_pr$temp) - 1,
+  "KNN ROC curve"
+)
+```
+
+KNN with \(k = `r knn_param$k`\) has an accuracy of 
+\(`r sum(diag(knn_cfmat)) / sum(knn_cfmat) * 100`\%\), which is the best 
+performance so far. KNN is a strong out-of-the-box classifier and is 
+advantageous in that it is easy to tune, is non-parametric and very intuitive,
+which for examples the SVMs are sometimes not.

@@ -34,7 +34,7 @@ library(e1071)
 
 svc <- tune(
   svm,
-  mpg01 ~ .,
+  mpg01 ~ . - mpg,
   data = Auto,
   kernel = "linear",
   ranges = list(
@@ -47,9 +47,11 @@ Let's take a look at CV error as a function of log `cost` during tuning:
 
 ```{r}
 plot(log(svc$performances$cost, base = 10),
-     svc$performances$error, type = "b",
-     xlab = "Log(Cost)",
-     ylab = "CV Error")
+  svc$performances$error,
+  type = "b",
+  xlab = "Log(Cost)",
+  ylab = "CV Error"
+)
 ```
 
 The best value for `cost` is `r svc[["best.parameters"]]`, with a CV error
@@ -66,7 +68,7 @@ Let's start with the radial kernel.
 ```{r}
 svm_radial <- tune(
   svm,
-  mpg01 ~ .,
+  mpg01 ~ . - mpg,
   data = Auto,
   kernel = "radial",
   ranges = list(
@@ -87,7 +89,7 @@ up to degree six.
 ```{r}
 svm_poly <- tune(
   svm,
-  mpg01 ~ .,
+  mpg01 ~ . - mpg,
   data = Auto,
   kernel = "polynomial",
   ranges = list(
@@ -113,9 +115,10 @@ corresponds to 8 plots per method.
 vars <- colnames(Auto)
 
 plot_vars <- function(fit) {
-  for (var in vars[!(vars %in% c("mpg", "mpg01"))]) {
+  for (var in vars[!(vars %in% c("mpg01"))]) {
     plot(fit$best.model, Auto, as.formula(paste0("mpg ~ ", var)),
-         svSymbol = 10, dataSymbol = 20)
+      svSymbol = 10, dataSymbol = 20
+    )
   }
 }
 ```
